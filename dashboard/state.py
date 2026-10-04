@@ -1,9 +1,10 @@
+from .positions import Positions
 import copy
 import json
 from datetime import datetime, timezone
 
 TOPICS = ['SessionInfo', 'SessionStatus', 'DriverList', 'TimingData', 'TimingAppData',
-          'TrackStatus', 'WeatherData', 'RaceControlMessages', 'LapCount']
+          'TrackStatus', 'WeatherData', 'RaceControlMessages', 'LapCount', 'Position.z']
 
 
 def merge(base, patch):
@@ -52,6 +53,10 @@ def match_predictions(export, info):
 class State:
     def __init__(self, predictions=None, mode='replay'):
         self.topics = {}
+        self.positions = Positions()
+        self.positions_enabled = True
+        self.synthetic = False
+        self.recording_has_positions = None
         self.predictions = copy.deepcopy(predictions)
         self.mode = mode
         self.connection = 'connecting' if mode == 'live' else 'replay'
@@ -63,12 +68,16 @@ class State:
         self.replay = None
 
     def reset(self):
+        self.positions.reset()
         self.live_verified = False
         self.topics = {}
         self.last_update = None
         self.source_timestamp = None
 
     def apply(self, topic, payload, timestamp=None, now=None):
+        if topic == 'Position.z':
+            self.positions.apply(payload, now if now is not None else datetime.now(timezone.utc).timestamp())
+            return
         if topic not in TOPICS:
             return
         if isinstance(payload, str):
@@ -80,6 +89,19 @@ class State:
         self.topics[topic] = merge(self.topics.get(topic), payload)
         self.last_update = now if now is not None else datetime.now(timezone.utc).timestamp()
         self.source_timestamp = timestamp
+
+    def map_id(self):
+        info = self.topics.get('SessionInfo', {})
+        return json.dumps([self.positions.generation, info.get('Key'), info.get('StartDate'), info.get('Meeting')], sort_keys=True)
+
+    def position_snapshot(self, now=None):
+        clock = self.replay['position'] if self.replay else (now if now is not None else datetime.now(timezone.utc).timestamp())
+        result = self.positions.snapshot(clock)
+        if not self.positions_enabled:
+            result.update(available=False, reason='Position subscription rejected; timing-only connection')
+        if not result['reason'] and not result['available']:
+            result['reason'] = ('No position data in this recording.' if self.recording_has_positions is False else 'Awaiting recorded coordinates') if self.replay else 'Awaiting free upstream coordinates'
+        return dict(result, session_identity=self.map_id(), replay=self.replay, connection=self.connection, synthetic=self.synthetic)
 
     def snapshot(self, now=None):
         now = now if now is not None else datetime.now(timezone.utc).timestamp()
@@ -110,7 +132,7 @@ class State:
                 pass
         age = None if self.last_update is None else max(0, now - self.last_update)
         messages = self.topics.get('RaceControlMessages', {}).get('Messages', {})
-        return dict(session=info, drivers=drivers, predictions=predictions, prediction_reason=reason,
+        return dict(map_id=self.map_id(), session=info, drivers=drivers, predictions=predictions, prediction_reason=reason,
             prediction_generated_at=self.predictions.get('generated_at') if self.predictions else None,
             messages=[m for m in messages.values() if isinstance(m, dict)][-100:][::-1], track=self.topics.get('TrackStatus', {}),
             weather=self.topics.get('WeatherData', {}), laps=self.topics.get('LapCount', {}),

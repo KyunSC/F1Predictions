@@ -1,4 +1,4 @@
-"""Unauthenticated SignalR Core JSON protocol. No telemetry/GPS subscriptions."""
+"""Unauthenticated SignalR Core JSON protocol. Actual Position.z coordinates; CarData.z excluded."""
 import asyncio
 import json
 import time
@@ -48,16 +48,31 @@ async def connect(state, record_path):
             state.connection, state.error = 'connected', None
             # Invalidate old snapshots until the new subscription supplies current data.
             state.reset()
-            await ws.send(json.dumps({'type': 1, 'invocationId': '1', 'target': 'Subscribe', 'arguments': [TOPICS]}) + RS)
+            await ws.send(json.dumps({'type': 1, 'invocationId': '1', 'target': 'Subscribe', 'arguments': [TOPICS if state.positions_enabled else [t for t in TOPICS if t != 'Position.z']]}) + RS)
+            if not state.positions_enabled:
+                state.positions.error = 'Position subscription rejected; timing-only connection'
             record_path.parent.mkdir(parents=True, exist_ok=True)
+            subscription_confirmed = False
             with record_path.open('a') as recording:
                 while True:
-                    frame = await asyncio.wait_for(ws.recv(), 45)
+                    try:
+                        frame = await asyncio.wait_for(ws.recv(), 45)
+                    except websockets.exceptions.ConnectionClosed:
+                        if not subscription_confirmed:
+                            state.positions_enabled = False
+                        raise
                     for message in decode_frame(frame):
                         if message.get('type') == 7:
+                            if not subscription_confirmed:
+                                state.positions_enabled = False
                             raise RuntimeError(message.get('error', 'Server closed connection'))
                         if message.get('type') == 6:
                             await ws.send('{"type":6}' + RS)
+                        if message.get('type') == 3 and message.get('error') and state.positions_enabled:
+                            state.positions_enabled = False
+                            raise RuntimeError('Position subscription rejected; reconnecting with timing subscriptions')
+                        if message.get('type') == 3 and not message.get('error'):
+                            subscription_confirmed = True
                         for topic, data, timestamp in feed_events(message):
                             state.apply(topic, data, timestamp)
                             if topic == 'TimingData' and timestamp and state.topics.get('SessionInfo', {}).get('SessionStatus') == 'Started':
@@ -75,6 +90,7 @@ async def run_live(state, path, connector=connect, sleep=asyncio.sleep):
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            state.positions.reset()
             state.connection = 'reconnecting'
             state.error = f'{type(exc).__name__}: {exc}'
             state.reconnects += 1

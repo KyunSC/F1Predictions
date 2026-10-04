@@ -73,7 +73,7 @@ class DashboardTests(unittest.TestCase):
             with self.assertRaises(ValueError): replay.control('speed',3)
 
     def test_protocol_and_reconnect_backoff(self):
-        self.assertNotIn('CarData.z',TOPICS); self.assertNotIn('Position.z',TOPICS)
+        self.assertNotIn('CarData.z',TOPICS); self.assertIn('Position.z',TOPICS)
         frames=decode_frame('{"type":6}\u001e{"type":1,"target":"feed","arguments":["LapCount",{"CurrentLap":2},"now"]}\u001e')
         self.assertEqual(list(feed_events(frames[1]))[0],('LapCount',{'CurrentLap':2},'now'))
         with self.assertRaises(RuntimeError): list(feed_events({'type':3,'error':'Unauthorized'}))

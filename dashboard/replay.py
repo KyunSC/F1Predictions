@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 
 class Replay:
@@ -10,7 +11,9 @@ class Replay:
         self.events.sort(key=lambda e: e['at'])  # stable ordering for simultaneous messages
         start = self.events[0]['at']
         self.events = [dict(e, at=e['at'] - start) for e in self.events]
+        self.state.recording_has_positions = any(e['topic'] == 'Position.z' for e in self.events)
         self.label = 'Demo replay' if path.name == 'demo.jsonl' else f'Recorded replay · {path.name}'
+        self.state.synthetic = path.resolve() == (Path(__file__).parent / "recordings/demo.jsonl").resolve()
         self.position = 0.
         self.index = 0
         self.speed = 1
@@ -38,6 +41,6 @@ class Replay:
             self.position = min(self.events[-1]['at'], self.position + elapsed * self.speed)
             while self.index < len(self.events) and self.events[self.index]['at'] <= self.position:
                 e = self.events[self.index]
-                self.state.apply(e['topic'], e['data'], e.get('timestamp'))
+                self.state.apply(e['topic'], e['data'], e.get('timestamp'), now=e['at'])
                 self.index += 1
         self.publish()

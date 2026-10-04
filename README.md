@@ -283,9 +283,11 @@ F1_MODE=live ./.venv/bin/uvicorn dashboard.app:app --host 127.0.0.1 --port 8000
 The unauthenticated SignalR Core client follows the JSON subscription used by
 [FastF1's live client](https://github.com/theOehrly/Fast-F1/blob/main/fastf1/livetiming/client.py).
 It subscribes only to SessionInfo, SessionStatus, DriverList, TimingData,
-TimingAppData, TrackStatus, WeatherData, RaceControlMessages and LapCount.
-No car telemetry, GPS, or credentials are requested. Refused access is shown as a
-connection error; there is no paid fallback. The client reconnects with exponential
+TimingAppData, TrackStatus, WeatherData, RaceControlMessages, LapCount and Position.z.
+CarData.z and credentials are excluded. Position.z contains actual Cartesian car
+coordinates, not inferred race positions. A rejected position subscription reconnects
+with the original timing topics; missing or malformed coordinates do not stop timing.
+There is no paid fallback. The client reconnects with exponential
 backoff capped at 30 seconds. Snapshots are sent no more than once per second per
 browser. Disconnected data or updates over 15 seconds old are marked stale. Receipt
 age and upstream timestamp age are separate; both are exposed by the API.
@@ -324,8 +326,16 @@ At the end, use Restart to play again. Recordings are selected only at startup;
 the browser cannot select arbitrary filesystem paths.
 
 - `GET /api/state`: session, drivers, matching predictions, messages, weather,
-  track/lap status, connection freshness and replay state.
+  track/lap status, connection freshness, replay state and `map_id`.
 - `/ws`: pushes the same complete snapshot format once per second.
+- `GET /api/track-map`: `session_identity`, `geometry_id`, availability/reason,
+  coordinate system, ordered outline, bounds, rotation, attribution and provenance.
+- `/ws/positions`: at most five snapshots per second, with `session_identity`, reset
+  `generation`, increasing `sequence`, availability/reason, `presentation_clock`,
+  connection/replay state, per-driver age and samples grouped by racing number.
+  Samples retain x/y/z, upstream status, source UTC epoch seconds and presentation
+  seconds (receipt time live; recording offsets during replay). Both WebSockets use
+  the same localhost origin restrictions and one shared upstream connection.
 - `POST /api/replay/control`: `{"action":"pause"}`, `{"action":"resume"}`,
   `{"action":"restart"}`, or `{"action":"speed","speed":2}`. Returns 409 in live mode.
 
@@ -333,7 +343,7 @@ the browser cannot select arbitrary filesystem paths.
 
 ```bash
 ./.venv/bin/python -m unittest discover -s tests -v
-(cd frontend && npm run build)
+(cd frontend && npm test && npm run build)
 ./.venv/bin/python -m dashboard.smoke --seconds 45
 ```
 
@@ -346,3 +356,52 @@ upstream timing timestamp was about 2.36 seconds old. This verifies free recepti
 for that session; future upstream availability is not guaranteed. Run the smoke
 command during a session to verify current access. The UI verifies the current
 connection when timestamped timing arrives for a session marked Started.
+
+### Track map behavior and verification
+
+The SVG map sits above the timing tower. Click a marker or driver button, or focus
+it and press Enter/Space, to select the same driver in both views. Marker colors
+come from DriverList; labels fall back to racing numbers. A shared rotation and
+Y-axis flip preserve aspect ratio and measured coordinates, including OffTrack
+samples. OffTrack does not imply a pit-lane visit. Obvious coordinate-frame
+mismatches show an unavailable reason; coordinates are never rescaled to fit.
+
+Geometry comes only from [MultiViewer](https://api.multiviewer.app), at
+`/api/v1/circuits/{circuit_key}/{year}`. The backend uses a 10-second timeout and
+validates circuit, response year, physical venue, finite outline and rotation.
+Exact-year validated responses are cached in ignored `cache/track-maps/`. Event
+names cannot select a circuit: Kuala Lumpur/Sepang metadata must not select Sakhir.
+A missing or incompatible response shows **Track map unavailable**. No FastF1 race
+session is loaded. Responses to obsolete session requests are discarded.
+
+The independent position buffer retains ten seconds, at most 300 samples per driver,
+plus a final held coordinate for stale/hide handling. Duplicate and late samples
+are discarded. The decoder supports compressed initial snapshots and updates using
+the [FastF1 documented source format](https://github.com/theOehrly/Fast-F1/blob/master/fastf1/_api.py)
+without importing private APIs. Raw packets retain the existing JSONL format.
+The display runs one presentation-second behind receipt time and interpolates only
+between measured samples no more than two seconds apart. It never extrapolates.
+Markers become stale after five seconds and disappear after fifteen. Reduced motion
+holds actual samples without interpolation. Disconnect, pause and replay end freeze
+the display; restart clears selection and buffers. Replay speeds share the timing
+clock and never reveal future recording events.
+
+The bundled demo includes deterministic synthetic compressed coordinates and a
+matching synthetic outline, clearly labeled and entirely offline. Older recordings
+remain usable and show “No position data in this recording.”
+
+On October 4, 2026 at approximately 10:19 UTC, the extended 20-second live smoke
+check connected to session 11731 (Kuala Lumpur, circuit key 12), received 22 drivers
+and 22 timing lines, and ended with timing source age 2.20 seconds. It received
+**zero position samples**. MultiViewer `/api/v1/circuits/12/2026` returned 404.
+A separate `/63/2026` probe returned Sakhir data labeled 2022; the implementation
+rejects that year mismatch. Therefore live coordinate reception and marker alignment
+remain **unverified**, while timing operated with positions unavailable. The smoke
+command reports sample counts, driver coverage, source age and geometry availability.
+
+Offline checks cover parsing, freshness, buffers, reconnect fallback, session resets,
+geometry validation/cache/failures, WebSocket origins, replay and the synthetic demo.
+Frontend tests cover interpolation, coordinate transforms, clocks, stale markers,
+reduced motion and linked selection. Desktop and 400px mobile demo layouts were
+visually inspected. During an accessible position feed, additionally verify actual
+car-to-circuit alignment before relying on the map.
