@@ -229,3 +229,120 @@ validation folds.
 
 [FastF1](https://github.com/theOehrly/Fast-F1) provides official F1 timing data.
 This project is for educational and portfolio purposes.
+
+## Local live dashboard
+
+A separate React/TypeScript dashboard displays official timing alongside a fixed
+notebook export. The dashboard never loads race data into the model or refits it.
+Python 3.12 and Node 20.19+ are supported.
+
+### One-command startup
+
+From the repository root:
+
+```bash
+npm run dev
+```
+
+Open <http://127.0.0.1:5173>. This starts both services in one terminal; press
+**Ctrl+C** to stop both. It sets up missing dependencies on first use (requires
+Python 3.12 and Node.js 20.19+ installed). Later starts reuse the installation.
+For live timing, use `npm run dev:live`. No root-level `npm install` is needed;
+these commands use the same launcher as `./start.sh` and `./start.sh --live`.
+Existing `F1_RECORDING` and
+`F1_PREDICTIONS` environment variables still work. Stop any separately running
+backend or frontend first; the launcher reports occupied ports without killing them.
+
+### Separate services (optional)
+
+From the repository root, start the backend (demo replay is the default):
+
+```bash
+./.venv/bin/pip install -r requirements.txt
+./.venv/bin/uvicorn dashboard.app:app --host 127.0.0.1 --port 8000
+```
+
+In a second terminal:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Open <http://127.0.0.1:5173>. Both services bind to localhost. Vite proxies the API
+and WebSocket to the backend. Run one backend process/worker so all browser tabs
+share one upstream connection and one replay clock. No account or paid access is used.
+
+To receive live timing, restart the backend with:
+
+```bash
+F1_MODE=live ./.venv/bin/uvicorn dashboard.app:app --host 127.0.0.1 --port 8000
+```
+
+The unauthenticated SignalR Core client follows the JSON subscription used by
+[FastF1's live client](https://github.com/theOehrly/Fast-F1/blob/main/fastf1/livetiming/client.py).
+It subscribes only to SessionInfo, SessionStatus, DriverList, TimingData,
+TimingAppData, TrackStatus, WeatherData, RaceControlMessages and LapCount.
+No car telemetry, GPS, or credentials are requested. Refused access is shown as a
+connection error; there is no paid fallback. The client reconnects with exponential
+backoff capped at 30 seconds. Snapshots are sent no more than once per second per
+browser. Disconnected data or updates over 15 seconds old are marked stale. Receipt
+age and upstream timestamp age are separate; both are exposed by the API.
+
+### Fixed predictions
+
+A clean notebook run now ends with `export_predictions(target, TARGET_EVENT,
+target_year)`, writing `dashboard/predictions.json` atomically. It includes the
+session's year, physical venue, scheduled UTC race date, generation time, qualifying
+racing numbers, pace ranks, predicted pace ratios and missing-feature flags.
+Racing numbers come from target qualifying; the target race is never loaded.
+The backend reads this file once at startup. Restart it after a new export, or set
+`F1_PREDICTIONS=/absolute/path/predictions.json`. Missing exports show an explanation.
+Predictions are withheld for non-race sessions or mismatching year, venue, or UTC
+race date; Sepang and Kuala Lumpur are recognized as the same venue. Drivers are
+matched by racing number, never name. Pace rank is distinct from finishing position.
+The notebook outputs were cleared after this edit; existing README model metrics
+were not changed, and no new model results are claimed.
+
+### Recordings and controls
+
+Live mode writes received subscribed messages to ignored timestamped JSONL files
+under `dashboard/recordings/live-*.jsonl`. Each line contains `at` (receipt Unix
+seconds), `topic`, `data`, and optional upstream `timestamp`. Initial subscription
+snapshots are recorded too. Replay sorts by receipt time (stable for ties), then
+feeds the same reducer. Choose a local recording at backend startup:
+
+```bash
+F1_MODE=replay F1_RECORDING=dashboard/recordings/live-smoke.jsonl \
+  ./.venv/bin/uvicorn dashboard.app:app --host 127.0.0.1 --port 8000
+```
+
+The included `demo.jsonl` is a two-minute, six-driver **Demo replay** with synthetic
+values. Pause/resume, restart and 1×/2×/5× speed controls apply to all connected tabs.
+At the end, use Restart to play again. Recordings are selected only at startup;
+the browser cannot select arbitrary filesystem paths.
+
+- `GET /api/state`: session, drivers, matching predictions, messages, weather,
+  track/lap status, connection freshness and replay state.
+- `/ws`: pushes the same complete snapshot format once per second.
+- `POST /api/replay/control`: `{"action":"pause"}`, `{"action":"resume"}`,
+  `{"action":"restart"}`, or `{"action":"speed","speed":2}`. Returns 409 in live mode.
+
+### Dashboard verification
+
+```bash
+./.venv/bin/python -m unittest discover -s tests -v
+(cd frontend && npm run build)
+./.venv/bin/python -m dashboard.smoke --seconds 45
+```
+
+On October 4, 2026 at approximately 09:54 UTC, an unauthenticated active-session
+smoke test completed negotiation and WebSocket subscription, received all nine
+subscribed topics, and received 158 TimingData messages with 22 timing lines/drivers.
+The provider identified the Bahrain GP at Kuala Lumpur, session 11731, as Started.
+At the end of the 25-second test, receipt age was 0.28 seconds and the latest
+upstream timing timestamp was about 2.36 seconds old. This verifies free reception
+for that session; future upstream availability is not guaranteed. Run the smoke
+command during a session to verify current access. The UI verifies the current
+connection when timestamped timing arrives for a session marked Started.

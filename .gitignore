@@ -50,3 +50,9 @@ data/
 *.swp
 *.swo
 *~
+
+# Local dashboard
+frontend/node_modules/
+dashboard/predictions.json
+dashboard/recordings/live-*.jsonl
+frontend/*.tsbuildinfo
