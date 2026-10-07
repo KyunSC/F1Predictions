@@ -1,7 +1,7 @@
 import {useEffect, useState} from 'react'
 import type {Snapshot} from './types'
 export type Sample={x:number;y:number;z:number;source_timestamp:number;presentation_timestamp:number;status:string|number}
-export type Stream={session_identity:string;generation:number;sequence:number;available:boolean;reason:string|null;age_seconds:number|null;presentation_clock:number;connection:string;synthetic:boolean;samples:Record<string,Sample[]>;replay:Snapshot['replay']}
+export type Stream={diagnostics?:{coordinate_packets:number;decoded_samples:number;driver_coverage:string[];missing_drivers:string[];rejected:Record<string,number>;gaps_over_5s:Record<string,number>};session_identity:string;generation:number;sequence:number;available:boolean;reason:string|null;age_seconds:number|null;presentation_clock:number;connection:string;synthetic:boolean;samples:Record<string,Sample[]>;replay:Snapshot['replay']}
 export function transform(x:number,y:number,rotation:number):[number,number]{const a=rotation*Math.PI/180;return [x*Math.cos(a)-y*Math.sin(a),-(x*Math.sin(a)+y*Math.cos(a))]}
 export function presentationClock(s:Stream,elapsed:number,online:boolean){return s.presentation_clock+(online&&s.connection!=='reconnecting'&&s.connection!=='connecting'&&!s.replay?.paused&&!s.replay?.ended?Math.min(elapsed,.6)*(s.replay?.speed||1):0)}
 export function marker(samples:Sample[],time:number,reduced=false){

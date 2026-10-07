@@ -405,3 +405,78 @@ Frontend tests cover interpolation, coordinate transforms, clocks, stale markers
 reduced motion and linked selection. Desktop and 400px mobile demo layouts were
 visually inspected. During an accessible position feed, additionally verify actual
 car-to-circuit alignment before relying on the map.
+
+### Historical dashboard replay and diagnosis
+
+Import raw Formula 1 archive streams (requires `curl`), independently of the
+prediction notebook:
+
+```bash
+./.venv/bin/python -m dashboard.historical --year 2025 \
+  --event 'Japanese Grand Prix' --session Race --output cache/suzuka-replay.jsonl
+F1_MODE=replay F1_RECORDING=cache/suzuka-replay.jsonl \
+  ./.venv/bin/uvicorn dashboard.app:app --host 127.0.0.1 --port 8000
+./.venv/bin/python -m dashboard.diagnostics cache/suzuka-replay.jsonl \
+  --geometry cache/track-maps/46-2025.json
+```
+
+Open the frontend normally. Geometry is cached after the map is first opened;
+omit `--geometry` for a coordinates-only offline report. Event and session names
+must match the archive index exactly (case insensitive). Downloads are cached in
+`cache/historical/`; keep output recordings under ignored `cache/` as well.
+Missing HTTP streams are reported; SessionInfo is required. No alternate circuit
+or year is substituted. The importer preserves raw compressed Position.z payloads
+and uses the archive's common elapsed-time prefixes for **all** topics, following
+[FastF1's archive framing implementation](https://github.com/theOehrly/Fast-F1/blob/master/fastf1/_api.py).
+Replay passes them through the same decoder and reducer as live mode.
+
+The label **Reconstructed archive replay** distinguishes archive time from live
+receipt time: network delays cannot be recovered. Additive `reconstructed` and
+`provenance` fields leave existing JSONL recordings compatible. Coordinates use
+one source-to-presentation clock offset per session/reconnect, anchored to the
+latest sample in the first valid packet. Later delivery delays do not shift old
+samples forward. That initial offset is an estimate, not proof of exact live
+synchronization. The map retains its one-second interpolation buffer; the timing
+tower is updated independently once per second. Physical track order need not
+match official race position, especially for lapped cars and pit stops.
+
+The map's expandable diagnostics and `/ws/positions` now report packet/sample
+counts, racing-number coverage, missing drivers, rejected entries by reason, and
+gaps over five seconds. The offline command also validates geometry metadata and
+reports the fraction of on-track samples inside its bounds. Bounds are a coarse
+compatibility check, not a proof of exact survey alignment. Malformed driver
+entries are isolated; other drivers and timing updates continue normally.
+
+Verification on October 4, 2026:
+
+- The affected October 4 race at Kuala Lumpur (session 11731) has **15,018 archived
+  Position.z packets**, with 57,287 decoded samples for each of 22 racing numbers,
+  plus IDs 241/242/243. The two local live recordings still contain zero coordinate
+  packets. This establishes archive availability, not live subscription delivery.
+  Its exact MultiViewer geometry endpoint `/12/2026` returned 404, so the original
+  race's complete map behavior remains unverified.
+- Searching backward through the 2026 and 2025 archive indexes found the newest
+  exact-year geometry at **Suzuka, April 6, 2025**, circuit 46. Recent endpoints
+  often returned older geometry (for example `/144/2026` returned year 2022);
+  strict validation rejected these responses rather than using them.
+- The complete Suzuka replay processed **8,266 coordinate packets and 640,980
+  samples across all 20 drivers**, with no rejected samples or gaps over five
+  seconds (maximum gap 3.260s). All 640,980 on-track samples were within the
+  matching geometry bounds plus the existing 10% margin.
+- Chrome desktop and 400px responsive inspection used a reconstructed excerpt
+  of normalized replay seconds **3598–3630**, ending on lap 3. All 20 markers
+  were present on matching geometry. Selecting Hamilton also selected his timing
+  row and displayed official **P8**, without changing his measured coordinates.
+  Closely grouped labels overlap, particularly on mobile; keyboard/tower
+  selection remains available. This verifies general historical rendering, not
+  the exact reported Sepang failure.
+- Failing regression cases reproduced per-packet clock shifting (a sample at
+  source +1s arriving at replay 13s incorrectly appeared at 13s instead of 11s)
+  and a malformed driver's entry dropping other valid cars. Both are fixed.
+  Synthetic overtake/lapped-car tests preserve coordinates while official
+  standings change. No historical overtake is claimed from the inspected excerpt.
+
+The small attributed fixture in `tests/fixtures/` contains three original
+compressed packets and explicitly reconstructed starting snapshots. Full archive
+downloads and geometry probes remain outside Git. Prediction training, notebook
+outputs and reported model metrics are unchanged by this work.

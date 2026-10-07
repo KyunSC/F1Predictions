@@ -13,6 +13,8 @@ class Replay:
         self.events = [dict(e, at=e['at'] - start) for e in self.events]
         self.state.recording_has_positions = any(e['topic'] == 'Position.z' for e in self.events)
         self.label = 'Demo replay' if path.name == 'demo.jsonl' else f'Recorded replay · {path.name}'
+        if any(e.get('reconstructed') for e in self.events):
+            self.label = f'Reconstructed archive replay · {path.name}'
         self.state.synthetic = path.resolve() == (Path(__file__).parent / "recordings/demo.jsonl").resolve()
         self.position = 0.
         self.index = 0

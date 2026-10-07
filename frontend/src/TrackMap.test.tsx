@@ -48,3 +48,14 @@ it('keeps overlapping markers separately keyboard-selectable',async()=>{
  fireEvent.keyDown(first,{key:' '});expect(first.getAttribute('aria-pressed')).toBe('true')
  fireEvent.keyDown(second,{key:'Enter'});expect(second.getAttribute('aria-pressed')).toBe('true');expect(first.getAttribute('aria-pressed')).toBe('false')
 })
+it('renders measured locations independently of official overtake and lapped standings',async()=>{
+ render(<App/>);const positions=Socket.sockets.find(s=>s.url.endsWith('/ws/positions'))!,timing=Socket.sockets.find(s=>s.url.endsWith('/ws'))!
+ const snapshot={session:{},drivers:[{number:'44',name:'Lewis Hamilton',code:'HAM',position:'2',gap:'+1 LAP'}],predictions:[],messages:[],track:{},weather:{},laps:{},connection:{},replay}
+ act(()=>{timing.emit(snapshot);positions.emit(stream)})
+ const car=await screen.findByRole('button',{name:'Select Lewis Hamilton'})
+ expect(car.getAttribute('transform')).toBe('translate(1 -1)')
+ fireEvent.click(car);expect(screen.getByText(/Lewis Hamilton · P2/)).toBeTruthy()
+ act(()=>timing.emit({...snapshot,drivers:[{...snapshot.drivers[0],position:'1',gap:'LAP 2'}]}))
+ expect(car.getAttribute('transform')).toBe('translate(1 -1)')
+ expect(screen.getByText(/Lewis Hamilton · P1/)).toBeTruthy()
+})

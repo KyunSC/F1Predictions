@@ -127,3 +127,35 @@ class PositionTests(unittest.TestCase):
                 self.assertIn('TimingData',subscription['arguments'][0])
                 self.assertIn('timing-only',state.position_snapshot()['reason'])
         asyncio.run(run())
+
+class PositionRegressionTests(unittest.TestCase):
+    def test_delayed_packet_retains_session_clock(self):
+        state=State();state.apply('Position.z',packet((0,)),now=10)
+        state.apply('Position.z',packet((1,)),now=13)
+        self.assertEqual(state.positions.samples['44'][-1]['presentation_timestamp'],11)
+
+    def test_malformed_driver_does_not_drop_other_cars(self):
+        state=State();value=packet((0,))
+        value['Position'][0]['Entries']['1']={'X':None,'Y':0,'Z':0}
+        state.apply('Position.z',value,now=0)
+        self.assertIn('44',state.positions.samples)
+        self.assertEqual(state.position_snapshot()['diagnostics']['rejected']['invalid_sample'],1)
+
+    def test_partial_coverage_number_normalization_late_updates_and_gaps(self):
+        state=State();state.apply('DriverList',{'44':{},'1':{}})
+        state.apply('Position.z',packet((0,),number='044'),now=10)
+        self.assertEqual(state.position_snapshot()['diagnostics']['missing_drivers'],['1'])
+        state.apply('Position.z',packet((6,),number='44'),now=16)
+        state.apply('Position.z',packet((1,),number='44'),now=17)
+        stats=state.position_snapshot()['diagnostics']
+        self.assertEqual(stats['gaps_over_5s'],{'44':1})
+        self.assertEqual(stats['rejected'],{'duplicate_or_late':1})
+        self.assertEqual(state.positions.samples['44'][-1]['x'],600)
+        state.reset();self.assertEqual(state.position_snapshot()['diagnostics']['coordinate_packets'],0)
+
+    def test_long_delivery_delay_keeps_stale_sample_without_crashing(self):
+        state=State();state.apply('Position.z',packet((0,)),now=0)
+        state.apply('Position.z',packet((1,)),now=20)
+        snapshot=state.position_snapshot(20)
+        self.assertEqual(snapshot['driver_age_seconds']['44'],19)
+        self.assertEqual(snapshot['samples']['44'][-1]['presentation_timestamp'],1)

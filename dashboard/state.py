@@ -101,6 +101,9 @@ class State:
             result.update(available=False, reason='Position subscription rejected; timing-only connection')
         if not result['reason'] and not result['available']:
             result['reason'] = ('No position data in this recording.' if self.recording_has_positions is False else 'Awaiting recorded coordinates') if self.replay else 'Awaiting free upstream coordinates'
+        known = {n for n in self.topics.get('DriverList', {}) if n.isdigit()}
+        result['diagnostics']['missing_drivers'] = sorted(known - self.positions.latest.keys(), key=int)
+        result['diagnostics']['unlisted_numbers'] = sorted(self.positions.latest.keys() - known, key=int)
         return dict(result, session_identity=self.map_id(), replay=self.replay, connection=self.connection, synthetic=self.synthetic)
 
     def snapshot(self, now=None):
