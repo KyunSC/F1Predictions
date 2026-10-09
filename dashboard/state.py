@@ -53,6 +53,8 @@ def match_predictions(export, info):
 class State:
     def __init__(self, predictions=None, mode='replay'):
         self.topics = {}
+        self.timing_history = []
+        self.presentation_frozen = None
         self.positions = Positions()
         self.positions_enabled = True
         self.synthetic = False
@@ -69,6 +71,8 @@ class State:
 
     def reset(self):
         self.positions.reset()
+        self.timing_history = []
+        self.presentation_frozen = None
         self.live_verified = False
         self.topics = {}
         self.last_update = None
@@ -89,6 +93,14 @@ class State:
         self.topics[topic] = merge(self.topics.get(topic), payload)
         self.last_update = now if now is not None else datetime.now(timezone.utc).timestamp()
         self.source_timestamp = timestamp
+        # Keep the predecessor as well as recent changes: a quiet timing topic
+        # must still have a state at the shared buffered presentation moment.
+        frame = self.snapshot(now=self.last_update)
+        frame['presentation_timestamp'] = self.last_update
+        self.timing_history.append(frame)
+        cutoff = self.last_update - 5
+        while len(self.timing_history) > 1 and self.timing_history[1]['presentation_timestamp'] < cutoff:
+            self.timing_history.pop(0)
 
     def map_id(self):
         info = self.topics.get('SessionInfo', {})
@@ -96,6 +108,10 @@ class State:
 
     def position_snapshot(self, now=None):
         clock = self.replay['position'] if self.replay else (now if now is not None else datetime.now(timezone.utc).timestamp())
+        if self.connection in ('connecting', 'reconnecting'):
+            clock = self.presentation_frozen if self.presentation_frozen is not None else clock
+        else:
+            self.presentation_frozen = clock
         result = self.positions.snapshot(clock)
         if not self.positions_enabled:
             result.update(available=False, reason='Position subscription rejected; timing-only connection')
@@ -104,7 +120,9 @@ class State:
         known = {n for n in self.topics.get('DriverList', {}) if n.isdigit()}
         result['diagnostics']['missing_drivers'] = sorted(known - self.positions.latest.keys(), key=int)
         result['diagnostics']['unlisted_numbers'] = sorted(self.positions.latest.keys() - known, key=int)
-        return dict(result, session_identity=self.map_id(), replay=self.replay, connection=self.connection, synthetic=self.synthetic)
+        return dict(result, session_identity=self.map_id(), replay=self.replay, connection=self.connection, synthetic=self.synthetic,
+                    presentation_timestamp=clock - 1, timing_history=self.timing_history,
+                    current=self.snapshot(now=now))
 
     def snapshot(self, now=None):
         now = now if now is not None else datetime.now(timezone.utc).timestamp()
@@ -135,7 +153,7 @@ class State:
                 pass
         age = None if self.last_update is None else max(0, now - self.last_update)
         messages = self.topics.get('RaceControlMessages', {}).get('Messages', {})
-        return dict(map_id=self.map_id(), session=info, drivers=drivers, predictions=predictions, prediction_reason=reason,
+        return dict(map_id=self.map_id(), session_identity=self.map_id(), generation=self.positions.generation, presentation_timestamp=self.last_update, session=info, drivers=drivers, predictions=predictions, prediction_reason=reason,
             prediction_generated_at=self.predictions.get('generated_at') if self.predictions else None,
             messages=[m for m in messages.values() if isinstance(m, dict)][-100:][::-1], track=self.topics.get('TrackStatus', {}),
             weather=self.topics.get('WeatherData', {}), laps=self.topics.get('LapCount', {}),

@@ -1,7 +1,7 @@
 import {useEffect, useState} from 'react'
 import type {Snapshot} from './types'
 export type Sample={x:number;y:number;z:number;source_timestamp:number;presentation_timestamp:number;status:string|number}
-export type Stream={diagnostics?:{coordinate_packets:number;decoded_samples:number;driver_coverage:string[];missing_drivers:string[];rejected:Record<string,number>;gaps_over_5s:Record<string,number>};session_identity:string;generation:number;sequence:number;available:boolean;reason:string|null;age_seconds:number|null;presentation_clock:number;connection:string;synthetic:boolean;samples:Record<string,Sample[]>;replay:Snapshot['replay']}
+export type Stream={current?:Snapshot;presentation_timestamp?:number;timing_history?:(Snapshot&{presentation_timestamp:number})[];diagnostics?:{coordinate_packets:number;decoded_samples:number;driver_coverage:string[];missing_drivers:string[];rejected:Record<string,number>;gaps_over_5s:Record<string,number>};session_identity:string;generation:number;sequence:number;available:boolean;reason:string|null;age_seconds:number|null;presentation_clock:number;connection:string;synthetic:boolean;samples:Record<string,Sample[]>;replay:Snapshot['replay']}
 export function transform(x:number,y:number,rotation:number):[number,number]{const a=rotation*Math.PI/180;return [x*Math.cos(a)-y*Math.sin(a),-(x*Math.sin(a)+y*Math.cos(a))]}
 export function presentationClock(s:Stream,elapsed:number,online:boolean){return s.presentation_clock+(online&&s.connection!=='reconnecting'&&s.connection!=='connecting'&&!s.replay?.paused&&!s.replay?.ended?Math.min(elapsed,.6)*(s.replay?.speed||1):0)}
 export function marker(samples:Sample[],time:number,reduced=false){
@@ -26,4 +26,26 @@ export function aligned(outline:[number,number][],samples:Record<string,Sample[]
  const xs=outline.map(p=>p[0]),ys=outline.map(p=>p[1]);const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys)
  const margin=Math.max(maxX-minX,maxY-minY)*.1
  return onTrack.some(s=>s.x>=minX-margin&&s.x<=maxX+margin&&s.y>=minY-margin&&s.y<=maxY+margin)
+}
+
+export function timingAt(stream:Stream,time:number){
+ return stream.timing_history?.filter(frame=>frame.presentation_timestamp<=time&&frame.generation===stream.generation&&frame.session_identity===stream.session_identity).at(-1)
+}
+// One clock and one transport drive both the tower and the map. Current health
+// and replay controls remain outside the delayed presentation state.
+export function usePresentation(){
+ const {value,online}=usePositions()
+ const [clock,setClock]=useState({time:0,identity:''})
+ useEffect(()=>{
+  if(!value||!online)return
+  let id:number
+  const tick=()=>{setClock({time:Math.min(value.stream.presentation_clock,presentationClock(value.stream,(performance.now()-value.received)/1000,online)-1),identity:value.stream.session_identity});id=requestAnimationFrame(tick)}
+  tick();return()=>cancelAnimationFrame(id)
+ },[value,online])
+ const stream=value?.stream
+ const time=stream&&clock.identity!==stream.session_identity?stream.presentation_clock-1:clock.time
+ const current=stream?.current
+ const frame=stream?timingAt(stream,time):undefined
+ const data=current?{...current,...frame,connection:current.connection,replay:current.replay,drivers:frame?.drivers||[],messages:frame?.messages||[],laps:frame?.laps||{},track:frame?.track||{},weather:frame?.weather||{}}:null
+ return {stream,online,time,data}
 }

@@ -13,3 +13,13 @@ it('rejects obvious frame mismatch while preserving off-track measurements',()=>
  expect(aligned([[0,0],[10,10]],{'1':[sample(1,1000)]})).toBe(false)
  expect(aligned([[0,0],[10,10]],{'1':[{...sample(1,1000),status:'OffTrack'}]})).toBe(true)
 })
+
+import {timingAt} from './positions'
+import type {Snapshot} from './types'
+it('never uses future timing or another generation at the shared clock',()=>{
+ const frame=(time:number,generation=1)=>({presentation_timestamp:time,generation,session_identity:'race',drivers:[{number:'44',position:String(time)}]}) as Snapshot&{presentation_timestamp:number}
+ const stream={generation:1,session_identity:'race',timing_history:[frame(1),frame(2),frame(3,2)]} as Stream
+ expect(timingAt(stream,.5)).toBeUndefined()
+ expect(timingAt(stream,1.9)?.drivers[0].position).toBe('1')
+ expect(timingAt(stream,3)?.drivers[0].position).toBe('2')
+})

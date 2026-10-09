@@ -1,0 +1,130 @@
+{
+  "viewport": {
+    "width": 400,
+    "height": 684
+  },
+  "runs": [
+    {
+      "at": 3523.5,
+      "speed": 1,
+      "frames": 361,
+      "maxPixelError": 1.082217494526901e-05,
+      "errors": [
+        "Label overlap: 1",
+        "Label overlap: 5",
+        "Label overlap: 10",
+        "Label overlap: 12",
+        "Label overlap: 4",
+        "Label overlap: 6",
+        "Label overlap: 7",
+        "Label overlap: 14"
+      ]
+    },
+    {
+      "at": 3523.5,
+      "speed": 2,
+      "frames": 361,
+      "maxPixelError": 1.1479680608214594e-05,
+      "errors": [
+        "Label overlap: 5",
+        "Label overlap: 10",
+        "Label overlap: 1",
+        "Label overlap: 12",
+        "Label overlap: 4",
+        "Label overlap: 6",
+        "Label overlap: 7",
+        "Label overlap: 14"
+      ]
+    },
+    {
+      "at": 3523.5,
+      "speed": 5,
+      "frames": 361,
+      "maxPixelError": 1.3336195765453277e-05,
+      "errors": [
+        "Label overlap: 1",
+        "Label overlap: 10",
+        "Label overlap: 5",
+        "Label overlap: 4",
+        "Label overlap: 14",
+        "Label overlap: 6",
+        "Label overlap: 12",
+        "Label overlap: 7",
+        "Label overlap: 16",
+        "Label overlap: 18"
+      ]
+    },
+    {
+      "at": 3600,
+      "speed": 1,
+      "frames": 361,
+      "maxPixelError": 6.9566908372336154e-06,
+      "errors": [
+        "Label overlap: 7"
+      ]
+    },
+    {
+      "at": 3600,
+      "speed": 2,
+      "frames": 361,
+      "maxPixelError": 7.060203881647697e-06,
+      "errors": [
+        "Label overlap: 7",
+        "Label overlap: 4",
+        "Label overlap: 6",
+        "Label overlap: 1"
+      ]
+    },
+    {
+      "at": 3600,
+      "speed": 5,
+      "frames": 361,
+      "maxPixelError": 7.160119680872333e-06,
+      "errors": [
+        "Label overlap: 7",
+        "Label overlap: 4",
+        "Label overlap: 6",
+        "Label overlap: 1",
+        "Label overlap: 16"
+      ]
+    },
+    {
+      "at": 3630,
+      "speed": 1,
+      "frames": 362,
+      "maxPixelError": 1.460569711955556e-05,
+      "errors": [
+        "Label overlap: 4",
+        "Label overlap: 6",
+        "Label overlap: 10",
+        "Label overlap: 7",
+        "Label overlap: 22",
+        "Label overlap: 16",
+        "Label overlap: 18",
+        "Label overlap: 14",
+        "Label overlap: 23",
+        "Label overlap: 5",
+        "Label overlap: 12"
+      ]
+    },
+    {
+      "at": 3630,
+      "speed": 2,
+      "frames": 361,
+      "maxPixelError": 1.4101580567721721e-05,
+      "errors": [
+        "Label overlap: 4",
+        "Label overlap: 6",
+        "Label overlap: 10",
+        "Label overlap: 7",
+        "Label overlap: 22",
+        "Label overlap: 16",
+        "Label overlap: 18",
+        "Label overlap: 14",
+        "Label overlap: 23",
+        "Label overlap: 5",
+        "Label overlap: 12"
+      ]
+    }
+  ]
+}

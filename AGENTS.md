@@ -5,9 +5,13 @@ this file; edit `AGENTS.md` only.
 
 ## Project
 
-Predicts relative race pace (a ranking, not finishing positions) for a target F1 Grand
-Prix from qualifying performance and earlier races in the same season. All logic lives
-in `f1_race_prediction.ipynb`; see `README.md` for the model, features, and metrics.
+Predicts relative race pace for a target F1 Grand Prix from qualifying performance and
+earlier races in the same season. The main output is a pace ranking, which is distinct
+from finishing position; the notebook also validates a finishing-order ranker and
+compares podium models. Model logic lives in `f1_race_prediction.ipynb`. A separate
+local dashboard (`dashboard/` FastAPI backend, `frontend/` React/TypeScript) shows live
+timing next to the notebook's exported `dashboard/predictions.json`; it never feeds race
+data into the model or refits it. See `README.md` for the model, metrics, and dashboard.
 
 ## Commands
 
@@ -15,7 +19,9 @@ in `f1_race_prediction.ipynb`; see `README.md` for the model, features, and metr
 python3.12 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 ./.venv/bin/python -m unittest discover -s tests -v    # offline, no network
+(cd frontend && npm test && npm run build)            # dashboard frontend
 ./.venv/bin/jupyter notebook f1_race_prediction.ipynb  # needs network on first run
+npm run dev                                            # dashboard backend + frontend
 ```
 
 FastF1 downloads timing data into `cache/` (gitignored). A cold run can take several
@@ -24,8 +30,9 @@ minutes.
 ## How the tests load the notebook
 
 `tests/test_prediction.py` parses every code cell and executes **only top-level
-`def` statements** into a namespace that injects the imports plus `FEATURES`,
-`TARGET_COL`, and `MIN_TRAIN_RACES`. Consequences:
+`def` statements** into a namespace (`NS`) that injects the imports and the
+notebook-level constants those functions read (`FEATURES`, `TARGET_COL`,
+`MIN_TRAIN_RACES`, and others). Consequences:
 
 - Put testable logic in top-level functions, not loose cell code.
 - If a tested function starts reading a new notebook-level constant, add it to `NS`

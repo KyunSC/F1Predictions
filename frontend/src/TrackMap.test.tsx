@@ -23,13 +23,14 @@ beforeEach(()=>{
 })
 afterEach(()=>{cleanup();vi.unstubAllGlobals()})
 it('links keyboard marker selection and tower selection, clearing on restart',async()=>{
- render(<App/>);const positions=Socket.sockets.find(s=>s.url.endsWith('/ws/positions'))!,timing=Socket.sockets.find(s=>s.url.endsWith('/ws'))!
- act(()=>{timing.onopen?.();timing.emit({session:{},drivers:[{number:'44',name:'Lewis Hamilton',code:'HAM',color:'ff0000'}],predictions:[],messages:[],track:{},weather:{},laps:{},connection:{},replay});positions.emit(stream)})
+ render(<App/>);const positions=Socket.sockets.find(s=>s.url.endsWith('/ws/positions'))!
+ const snapshot={session_identity:'demo',generation:1,presentation_timestamp:0,session:{},drivers:[{number:'44',name:'Lewis Hamilton',code:'HAM',color:'ff0000'}],predictions:[],messages:[],track:{},weather:{},laps:{},connection:{},replay}
+ act(()=>positions.emit({...stream,current:snapshot,timing_history:[snapshot]}))
  const marker=await screen.findByRole('button',{name:'Select Lewis Hamilton'})
  fireEvent.keyDown(marker,{key:'Enter'})
  expect(screen.getByRole('button',{name:'HAM'}).getAttribute('aria-pressed')).toBe('true')
  expect(marker.getAttribute('aria-pressed')).toBe('true')
- act(()=>positions.emit({...stream,session_identity:'restart',generation:2}))
+ act(()=>positions.emit({...stream,session_identity:'restart',generation:2,current:snapshot,timing_history:[{...snapshot,session_identity:'restart',generation:2}]}))
  await waitFor(()=>expect(screen.getByRole('button',{name:'HAM'}).getAttribute('aria-pressed')).toBe('false'))
  fireEvent.click(screen.getByRole('button',{name:'HAM'}))
  expect(screen.getByText(/Lewis Hamilton · P/)).toBeTruthy()
@@ -49,13 +50,16 @@ it('keeps overlapping markers separately keyboard-selectable',async()=>{
  fireEvent.keyDown(second,{key:'Enter'});expect(second.getAttribute('aria-pressed')).toBe('true');expect(first.getAttribute('aria-pressed')).toBe('false')
 })
 it('renders measured locations independently of official overtake and lapped standings',async()=>{
- render(<App/>);const positions=Socket.sockets.find(s=>s.url.endsWith('/ws/positions'))!,timing=Socket.sockets.find(s=>s.url.endsWith('/ws'))!
- const snapshot={session:{},drivers:[{number:'44',name:'Lewis Hamilton',code:'HAM',position:'2',gap:'+1 LAP'}],predictions:[],messages:[],track:{},weather:{},laps:{},connection:{},replay}
- act(()=>{timing.emit(snapshot);positions.emit(stream)})
+ render(<App/>);const positions=Socket.sockets.find(s=>s.url.endsWith('/ws/positions'))!
+ const snapshot={session_identity:'demo',generation:1,presentation_timestamp:0,session:{},drivers:[{number:'44',name:'Lewis Hamilton',code:'HAM',position:'2',gap:'+1 LAP'}],predictions:[],messages:[],track:{},weather:{},laps:{},connection:{},replay}
+ act(()=>positions.emit({...stream,current:snapshot,timing_history:[snapshot]}))
  const car=await screen.findByRole('button',{name:'Select Lewis Hamilton'})
- expect(car.getAttribute('transform')).toBe('translate(1 -1)')
+ const location=car.getAttribute('transform')
  fireEvent.click(car);expect(screen.getByText(/Lewis Hamilton · P2/)).toBeTruthy()
- act(()=>timing.emit({...snapshot,drivers:[{...snapshot.drivers[0],position:'1',gap:'LAP 2'}]}))
- expect(car.getAttribute('transform')).toBe('translate(1 -1)')
+ const changed={...snapshot,presentation_timestamp:1.5,drivers:[{...snapshot.drivers[0],position:'1',gap:'LAP 2'}]}
+ act(()=>positions.emit({...stream,current:changed,timing_history:[snapshot,changed]}))
+ expect(screen.getByText(/Lewis Hamilton · P2/)).toBeTruthy()
+ act(()=>positions.emit({...stream,presentation_clock:3,current:changed,timing_history:[snapshot,changed]}))
+ expect(car.getAttribute('transform')).toBe(location)
  expect(screen.getByText(/Lewis Hamilton · P1/)).toBeTruthy()
 })

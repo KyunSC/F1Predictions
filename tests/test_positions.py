@@ -71,6 +71,36 @@ class PositionTests(unittest.TestCase):
         generation=state.positions.generation;r.control('restart');self.assertGreater(state.positions.generation,generation)
         r.advance(9999);end=r.position;r.advance(10);self.assertEqual(r.position,end);self.assertTrue(state.replay['ended'])
 
+    def test_demo_track_order_matches_timing(self):
+        # The synthetic demo once placed the leader at the back of the pack.
+        outline=json.loads(Path('dashboard/demo-outline.json').read_text())
+        points=list(zip(outline['x'],outline['y']));points.append(points[0])
+        segments=[];length=0
+        for a,b in zip(points,points[1:]):
+            size=((b[0]-a[0])**2+(b[1]-a[1])**2)**.5
+            if size:segments.append((a,b,length,size));length+=size
+        def lap_distance(x,y):
+            best=None
+            for a,b,start,size in segments:
+                dx,dy=b[0]-a[0],b[1]-a[1];f=max(0,min(1,((x-a[0])*dx+(y-a[1])*dy)/size**2))
+                d=(a[0]+dx*f-x)**2+(a[1]+dy*f-y)**2
+                if best is None or d<best[0]:best=(d,start+size*f)
+            return best[1]
+        timing={};checked=0
+        for line in Path('dashboard/recordings/demo.jsonl').read_text().splitlines():
+            event=json.loads(line)
+            if event['topic']=='TimingData':
+                for n,v in event['data'].get('Lines',{}).items():
+                    if 'Position' in v:timing[n]=int(v['Position'])
+            if event['topic']!='Position.z':continue
+            for entry in json.loads(zlib.decompress(base64.b64decode(event['data']),-15))['Position']:
+                distance={n:lap_distance(v['X'],v['Y']) for n,v in entry['Entries'].items()}
+                leader=min(timing,key=timing.get)
+                behind={n:(distance[leader]-d)%length for n,d in distance.items()}
+                self.assertEqual(sorted(behind,key=behind.get),sorted(timing,key=timing.get),entry['Timestamp'])
+                self.assertLess(max(behind.values()),length/2);checked+=1
+        self.assertGreater(checked,500)
+
     def test_geometry_validation_and_venue(self):
         info={'StartDate':'2026-10-04','Meeting':{'Location':'Kuala Lumpur','Circuit':{'Key':63,'ShortName':'Sakhir'}}}
         with self.assertRaises(ValueError):resolve(info)

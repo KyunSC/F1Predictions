@@ -90,7 +90,6 @@ async def run_live(state, path, connector=connect, sleep=asyncio.sleep):
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            state.positions.reset()
             state.connection = 'reconnecting'
             state.error = f'{type(exc).__name__}: {exc}'
             state.reconnects += 1

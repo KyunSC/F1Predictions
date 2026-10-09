@@ -1,0 +1,95 @@
+{
+  "viewport": {
+    "width": 400,
+    "height": 684
+  },
+  "runs": [
+    {
+      "at": 3523.5,
+      "speed": 1,
+      "frames": 361,
+      "maxPixelError": 1.1387658016561557e-05,
+      "errors": []
+    },
+    {
+      "at": 3523.5,
+      "speed": 2,
+      "frames": 361,
+      "maxPixelError": 1.3863452857974813e-05,
+      "errors": []
+    },
+    {
+      "at": 3523.5,
+      "speed": 5,
+      "frames": 361,
+      "maxPixelError": 1.374755621851175e-05,
+      "errors": []
+    },
+    {
+      "at": 3600,
+      "speed": 1,
+      "frames": 362,
+      "maxPixelError": 6.989990140603514e-06,
+      "errors": []
+    },
+    {
+      "at": 3600,
+      "speed": 2,
+      "frames": 361,
+      "maxPixelError": 7.334324305595395e-06,
+      "errors": []
+    },
+    {
+      "at": 3600,
+      "speed": 5,
+      "frames": 361,
+      "maxPixelError": 8.260948823761653e-06,
+      "errors": []
+    },
+    {
+      "at": 3630,
+      "speed": 1,
+      "frames": 362,
+      "maxPixelError": 1.426913659465205e-05,
+      "errors": []
+    },
+    {
+      "at": 3630,
+      "speed": 2,
+      "frames": 361,
+      "maxPixelError": 1.414115408885384e-05,
+      "errors": []
+    },
+    {
+      "at": 3630,
+      "speed": 5,
+      "frames": 362,
+      "maxPixelError": 1.4640694431192417e-05,
+      "errors": []
+    },
+    {
+      "at": 3648.5,
+      "speed": 1,
+      "frames": 361,
+      "maxPixelError": 6.5365178253197556e-06,
+      "errors": []
+    },
+    {
+      "at": 3648.5,
+      "speed": 2,
+      "frames": 361,
+      "maxPixelError": 6.182060555660761e-06,
+      "errors": []
+    },
+    {
+      "at": 3648.5,
+      "speed": 5,
+      "frames": 361,
+      "maxPixelError": 9.262841446436126e-06,
+      "errors": []
+    }
+  ],
+  "keyboardSelection": true,
+  "towerSelection": true,
+  "restartClearedSelection": true
+}
