@@ -110,6 +110,15 @@ class PositionTests(unittest.TestCase):
             with self.assertRaises(ValueError):validate(bad)
         with self.assertRaises(ValueError):validate_provider(dict(good,circuitKey=63,year=2022),63,2026,info)
 
+    def test_geometry_accepts_latest_earlier_layout_and_venue_alias(self):
+        # MultiViewer returns its 2023 Marina Bay layout, labelled 'Singapore', for 2026.
+        info={'StartDate':'2026-10-10T17:00:00','Meeting':{'Location':'Marina Bay','Circuit':{'Key':61,'ShortName':'Singapore'}}}
+        self.assertEqual(resolve(info),(61,2026))
+        layout=dict(x=[0,1,2],y=[0,2,0],rotation=335,circuitKey=61,location='Singapore')
+        self.assertEqual(validate_provider(dict(layout,year=2023),61,2026,info)['layout_year'],2023)
+        for bad in [dict(layout,year=2027),dict(layout,year='2023'),dict(layout,year=2023,circuitKey=46),dict(layout,year=2023,location='Suzuka')]:
+            with self.assertRaises(ValueError):validate_provider(bad,61,2026,info)
+
     def test_geometry_cache_failure_and_late_result(self):
         async def run():
             with tempfile.TemporaryDirectory() as tmp:

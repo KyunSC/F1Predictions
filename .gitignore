@@ -56,3 +56,5 @@ frontend/node_modules/
 dashboard/predictions.json
 dashboard/recordings/live-*.jsonl
 frontend/*.tsbuildinfo
+frontend/.next/
+frontend/next-env.d.ts

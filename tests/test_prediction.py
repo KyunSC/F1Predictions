@@ -3,6 +3,7 @@ import ast
 import json
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import fastf1
@@ -20,7 +21,7 @@ NB = json.loads((Path(__file__).resolve().parents[1] / 'f1_race_prediction.ipynb
 NS = dict(fastf1=fastf1, np=np, pd=pd, SimpleImputer=SimpleImputer,
           Ridge=Ridge, make_pipeline=make_pipeline, StandardScaler=StandardScaler,
           FEATURES=['QualiRatio', 'QualifyingPosition', 'PriorPace'],
-          TARGET_COL='PaceRatio', MIN_TRAIN_RACES=4, CatBoostRanker=CatBoostRanker, Pool=Pool,
+          TARGET_COL='PaceRatio', MIN_TRAIN_RACES=4, QUICKLAP_THRESHOLD=1.07, CatBoostRanker=CatBoostRanker, Pool=Pool,
           FINISH_FEATURES=['QualiRatio', 'GridPosition', 'PriorFinish'],
           CATBOOST_PARAMS=dict(loss_function='YetiRank', depth=2, iterations=20, random_seed=0, verbose=False))
 NS['mean_absolute_error'] = mean_absolute_error
@@ -32,11 +33,24 @@ NS.update(LogisticRegression=LogisticRegression, HistGradientBoostingClassifier=
           TREE_PARAMS=dict(max_depth=2, max_iter=10, min_samples_leaf=2, random_state=0),
           GRID_BANDWIDTH=1.5, GRID_PRIOR_STRENGTH=2.0, PODIUM_METHODS=PODIUM_METHODS, PROB_METHODS=PROB_METHODS,
           PROB_CLIP=1e-3, CALIBRATION_BINS=[0.0, 0.05, 0.15, 0.35, 0.65, 1.0], N_BOOTSTRAP=200, BOOTSTRAP_SEED=0)
+# Session and venue tables are read from the notebook's configuration cell, so the tests
+# exercise the configured values rather than a copy.
+CONFIG = next(c for c in NB['cells'] if c['cell_type'] == 'code' and 'SESSION_CODES' in ''.join(c['source']))
+NS.update({t.targets[0].id: ast.literal_eval(t.value) for t in ast.parse(''.join(CONFIG['source'])).body
+           if isinstance(t, ast.Assign) and isinstance(t.targets[0], ast.Name)
+           and t.targets[0].id in ('SESSION_CODES', 'SCHEDULE_SESSIONS', 'EXPECTED_VENUES',
+                                   'VENUE_HISTORY_SEASONS', 'VENUE_FEATURES', 'VENUE_ALIASES')})
 for cell in NB['cells']:
     if cell['cell_type'] == 'code':
         tree = ast.parse(''.join(cell['source']))
         functions = [n for n in tree.body if isinstance(n, ast.FunctionDef)]
         exec(compile(ast.Module(body=functions, type_ignores=[]), '<notebook>', 'exec'), NS)
+
+
+def quali_results():
+    return pd.DataFrame(dict(Abbreviation=['AAA', 'BBB'], DriverNumber=['1', '2'], FirstName=['A', 'B'],
+        LastName=['One', 'Two'], TeamName=['X', 'Y'], Position=[1., 2.],
+        Q1=pd.to_timedelta([90., 90.5], unit='s'), Q2=pd.to_timedelta([None, None]), Q3=pd.to_timedelta([None, None])))
 
 
 class PredictionTests(unittest.TestCase):
@@ -64,6 +78,146 @@ class PredictionTests(unittest.TestCase):
             schedule.loc[1, 'Location'] = 'Sakhir'
             with self.assertRaises(ValueError):
                 NS['resolve_schedule'](2026, 'Bahrain Grand Prix')
+
+    def test_sprint_schedule_rows_exclude_target_weekend_and_check_venue(self):
+        def event(name, loc, rnd, sessions):
+            row = dict(EventName=name, Location=loc, RoundNumber=rnd)
+            names = ['Practice 1', 'Practice 2', 'Practice 3', 'Qualifying', 'Race']
+            if 'Sprint' in sessions:
+                names = ['Practice 1', 'Sprint Qualifying', 'Sprint', 'Qualifying', 'Race']
+            for j, session in enumerate(names, 1):
+                row[f'Session{j}'] = session
+                row[f'Session{j}DateUtc'] = sessions.get(session)
+            return row
+        # Alphabetical order differs from date order, and Zandvoort's sprint precedes its race.
+        schedule = pd.DataFrame([
+            event('Zandvoort', 'Zandvoort', 1, {'Sprint': '2026-08-22 10:00', 'Race': '2026-08-23 13:00'}),
+            event('Baku', 'Baku', 2, {'Race': '2026-09-26 11:00'}),
+            event('Singapore Grand Prix', 'Marina Bay', 3, {'Sprint Qualifying': '2026-10-09 12:30',
+                  'Sprint': '2026-10-10 09:00', 'Qualifying': '2026-10-10 13:00', 'Race': '2026-10-11 12:00'}),
+            event('Austin', 'Austin', 4, {'Race': '2026-10-25 19:00'})])
+        resolve = NS['resolve_schedule']
+        with patch.object(fastf1, 'get_event_schedule', return_value=schedule):
+            target, earlier = resolve(2026, 'Singapore Grand Prix', 'sprint')
+            self.assertEqual((target.Kind, target.RaceStartUtc), ('sprint', pd.Timestamp('2026-10-10 09:00', tz='UTC')))
+            self.assertEqual(list(zip(earlier.EventName, earlier.Kind)),
+                             [('Zandvoort', 'sprint'), ('Zandvoort', 'race'), ('Baku', 'race')])
+            self.assertTrue(earlier.RaceStartUtc.is_monotonic_increasing)
+            self.assertTrue((earlier.RaceStartUtc < target.RaceStartUtc).all())
+            # The weekend's own GP is a later session; as a race target it trains on the sprint.
+            _, before_gp = resolve(2026, 'Singapore Grand Prix', 'race')
+            self.assertEqual(before_gp.Kind.tolist()[-1], 'sprint')
+            self.assertEqual(before_gp.EventName.tolist()[-1], 'Singapore Grand Prix')
+            with self.assertRaises(ValueError):
+                resolve(2026, 'Baku', 'sprint')  # no sprint at a conventional event
+            schedule.loc[2, 'Session3DateUtc'] = '2026-10-03 09:00'
+            with self.assertRaises(ValueError):
+                resolve(2026, 'Singapore Grand Prix', 'sprint')  # wrong date
+            schedule.loc[2, 'Session3DateUtc'] = '2026-10-10 09:00'
+            schedule.loc[2, 'Location'] = 'Sakhir'
+            with self.assertRaises(ValueError):
+                resolve(2026, 'Singapore Grand Prix', 'sprint')  # wrong venue
+
+    def test_sprint_target_loads_only_sprint_qualifying(self):
+        session = SimpleNamespace(results=quali_results(), load=lambda **kwargs: None)
+        with patch.object(fastf1, 'get_session', return_value=session) as load:
+            frame = NS['build_race_frame'](2026, 17, False, kind='sprint')
+        load.assert_called_once_with(2026, 17, 'SQ')
+        self.assertEqual(frame.RaceId.unique().tolist(), ['2026 17 Sprint'])
+        self.assertEqual(frame.Kind.unique().tolist(), ['sprint'])
+        self.assertTrue(frame.PaceRatio.isna().all())
+
+    def test_sprint_training_session_loads_sq_and_s(self):
+        laps = pd.DataFrame(dict(Driver=['AAA'] * 3 + ['BBB'] * 3,
+            LapTime=pd.to_timedelta([100., 100.5, 140., 101., 101.5, 102.], unit='s'),
+            PitInTime=pd.NaT, PitOutTime=pd.NaT))
+        results = pd.DataFrame(dict(Abbreviation=['AAA', 'BBB'], Position=[1., 2.], GridPosition=[1., 0.],
+                                    ClassifiedPosition=['1', 'R']))
+        sessions = {'SQ': SimpleNamespace(results=quali_results(), load=lambda **kwargs: None),
+                    'S': SimpleNamespace(results=results, laps=laps, load=lambda **kwargs: None)}
+        with patch.object(fastf1, 'get_session', side_effect=lambda y, e, code: sessions[code]) as load:
+            frame = NS['build_race_frame'](2026, 4, True, kind='sprint')
+        self.assertEqual([c.args for c in load.call_args_list], [(2026, 4, 'SQ'), (2026, 4, 'S')])
+        self.assertEqual(frame.RaceId.unique().tolist(), ['2026 4 Sprint'])
+        self.assertEqual(frame.GridPosition.tolist(), [1., 2.])  # pit-lane start goes to the back
+        self.assertEqual(frame.NotClassified.tolist(), [False, True])
+        self.assertLess(frame.PaceRatio.iloc[0], frame.PaceRatio.iloc[1])
+        with patch.object(fastf1, 'get_session', side_effect=lambda y, e, code: sessions['SQ']) as load:
+            NS['build_race_frame'](2026, 4, False)
+        load.assert_called_once_with(2026, 4, 'Q')
+
+    def test_weekend_sprint_feeds_gp_prior_pace_not_the_reverse(self):
+        frame = pd.DataFrame(dict(Driver=['A'] * 3, RaceId=['2026 2', '2026 1', '2026 2 Sprint'],
+            Kind=['race', 'race', 'sprint'], PaceRatio=[4., 1., 2.],
+            RaceStartUtc=pd.to_datetime(['2026-03-08 13:00', '2026-03-01 13:00', '2026-03-07 10:00'], utc=True)))
+        actual = NS['add_prior_form'](frame)
+        self.assertEqual(actual.RaceId.tolist(), ['2026 1', '2026 2 Sprint', '2026 2'])
+        self.assertEqual(actual.RaceIndex.tolist(), [0, 1, 2])
+        np.testing.assert_allclose(actual.PriorPace, [np.nan, 1., 1.5], equal_nan=True)
+
+    def test_sprint_only_filters_columns_and_index(self):
+        frame = pd.DataFrame(dict(RaceId=['r1', 's2', 'r2'], Kind=['race', 'sprint', 'race']))
+        walk = pd.DataFrame(dict(RaceId=['r1', 's2', 's2', 'r2'], Driver=list('ABAB')))
+        self.assertEqual(NS['sprint_only'](walk, frame).Driver.tolist(), ['B', 'A'])
+        per_race = walk.set_index(['RaceId', 'Driver'])
+        self.assertEqual(NS['sprint_only'](per_race, frame).index.get_level_values('RaceId').unique().tolist(), ['s2'])
+        self.assertTrue(NS['sprint_only'](pd.DataFrame(), frame).empty)
+
+    def test_venue_keys_match_renamed_locations(self):
+        self.assertEqual(NS['venue_key']('Miami Gardens'), NS['venue_key']('Miami'))
+        self.assertEqual(NS['venue_key']('Monte Carlo'), NS['venue_key']('Monaco'))
+        self.assertEqual(NS['venue_key'](' Marina Bay '), 'marina bay')
+        self.assertNotEqual(NS['venue_key']('Kuala Lumpur'), NS['venue_key']('Sakhir'))
+
+    def test_venue_history_loads_only_earlier_seasons_at_requested_venues(self):
+        def schedule(season):
+            rows = []
+            for rnd, (loc, sprint) in enumerate([('Marina Bay', False), ('Miami', True), ('Monza', False)], 1):
+                names = ['Practice 1', 'Sprint Qualifying' if sprint else 'Practice 2', 'Sprint' if sprint else 'Practice 3',
+                         'Qualifying', 'Race']
+                rows.append(dict(EventName=f'{loc} GP', Location=loc, RoundNumber=rnd,
+                                 **{f'Session{i}': n for i, n in enumerate(names, 1)}))
+            return pd.DataFrame(rows)
+        calls = []
+        def quali(year, rnd, code):
+            calls.append((year, rnd, code))
+            return pd.DataFrame(dict(Driver=['AAA'], QualiRatio=[1.01]))
+        def outcome(year, rnd, code):
+            calls.append((year, rnd, code))
+            if (year, code) == (2024, 'R'):
+                raise ValueError('No usable R laps')
+            return pd.DataFrame(dict(Driver=['AAA'], PaceRatio=[0.99]))
+        with patch.object(fastf1, 'get_event_schedule', side_effect=lambda season, **kw: schedule(season)) as sched, \
+                patch.dict(NS, get_quali_frame=quali, get_race_outcome=outcome, VENUE_HISTORY_SEASONS=(2024, 2025)):
+            history = NS['load_venue_history']({'marina bay', 'miami'}, 2026)
+            self.assertEqual([c.args[0] for c in sched.call_args_list], [2024, 2025])
+            with self.assertRaises(ValueError):
+                with patch.dict(NS, VENUE_HISTORY_SEASONS=(2025, 2026)):
+                    NS['load_venue_history']({'marina bay'}, 2026)
+        self.assertEqual(calls, [(2024, 1, 'Q'), (2024, 1, 'R'), (2024, 2, 'Q'), (2024, 2, 'S'), (2024, 2, 'R'),
+                                 (2025, 1, 'Q'), (2025, 1, 'R'), (2025, 2, 'Q'), (2025, 2, 'S'), (2025, 2, 'R')])
+        self.assertTrue((history.Season < 2026).all())
+        self.assertEqual(set(history.Venue), {'marina bay', 'miami'})
+        self.assertEqual(len(history), 8)  # two failed 2024 race loads are skipped
+
+    def test_venue_history_means_per_driver_and_rejects_target_season(self):
+        history = pd.DataFrame(dict(
+            Driver=['AAA', 'AAA', 'AAA', 'AAA', 'BBB', 'AAA'],
+            Venue=['marina bay'] * 5 + ['monza'],
+            Season=[2024, 2024, 2025, 2025, 2025, 2025],
+            Session=['Q', 'R', 'Q', 'R', 'R', 'R'],
+            QualiRatio=[1.00, np.nan, 1.02, np.nan, np.nan, np.nan],
+            PaceRatio=[np.nan, 0.98, np.nan, 1.00, 1.03, 0.90]))
+        frame = pd.DataFrame(dict(Driver=['AAA', 'BBB', 'CCC', 'AAA'], Year=2026,
+                                  Venue=['marina bay', 'marina bay', 'marina bay', 'madrid']))
+        actual = NS['add_venue_history'](frame, history)
+        self.assertEqual(len(actual), 4)
+        np.testing.assert_allclose(actual.VenuePace, [0.99, 1.03, np.nan, np.nan], equal_nan=True)
+        np.testing.assert_allclose(actual.VenueQualiRatio, [1.01, np.nan, np.nan, np.nan], equal_nan=True)
+        # Recomputing replaces rather than duplicates the columns.
+        self.assertEqual(list(NS['add_venue_history'](actual, history).columns), list(actual.columns))
+        with self.assertRaises(ValueError):
+            NS['add_venue_history'](frame, history.assign(Season=[2024, 2024, 2025, 2025, 2025, 2026]))
 
     def test_missing_qualifying_keeps_entrant_and_target_loads_only_q(self):
         class Session:

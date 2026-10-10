@@ -44,9 +44,13 @@ def match_predictions(export, info):
         return [], 'No pre-race prediction export loaded.'
     actual = identity(info)
     expected = export.get('session', {})
+    # A sprint is also Type 'Race' in the feed; exports name the session ('Race' or
+    # 'Sprint') so a sprint prediction is not shown for the Grand Prix. Older exports
+    # without a name match on year, venue and date only.
     if (info.get('Type') != 'Race' or not all(actual.values()) or
-        any(actual[k] != (venue(expected.get(k)) if k == 'venue' else expected.get(k)) for k in actual)):
-        return [], 'Predictions withheld: year, venue and race date must match a race session.'
+        any(actual[k] != (venue(expected.get(k)) if k == 'venue' else expected.get(k)) for k in actual) or
+        ('name' in expected and info.get('Name') != expected['name'])):
+        return [], 'Predictions withheld: year, venue, date and session name must match the predicted session.'
     return export.get('drivers', []), None
 
 
@@ -116,7 +120,7 @@ class State:
         if not self.positions_enabled:
             result.update(available=False, reason='Position subscription rejected; timing-only connection')
         if not result['reason'] and not result['available']:
-            result['reason'] = ('No position data in this recording.' if self.recording_has_positions is False else 'Awaiting recorded coordinates') if self.replay else 'Awaiting free upstream coordinates'
+            result['reason'] = ('No position data in this recording.' if self.recording_has_positions is False else 'Awaiting recorded coordinates') if self.replay else (self.positions.auth_problem or 'Awaiting upstream coordinates')
         known = {n for n in self.topics.get('DriverList', {}) if n.isdigit()}
         result['diagnostics']['missing_drivers'] = sorted(known - self.positions.latest.keys(), key=int)
         result['diagnostics']['unlisted_numbers'] = sorted(self.positions.latest.keys() - known, key=int)

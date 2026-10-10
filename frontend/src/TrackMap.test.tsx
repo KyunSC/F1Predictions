@@ -2,7 +2,7 @@
 import React from 'react'
 import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
 import {afterEach,beforeEach,expect,it,vi} from 'vitest'
-import {App} from './main'
+import {App} from './App'
 class Socket{
  static sockets:Socket[]=[]
  onmessage:((e:{data:string})=>void)|null=null
@@ -62,4 +62,13 @@ it('renders measured locations independently of official overtake and lapped sta
  act(()=>positions.emit({...stream,presentation_clock:3,current:changed,timing_history:[snapshot,changed]}))
  expect(car.getAttribute('transform')).toBe(location)
  expect(screen.getByText(/Lewis Hamilton · P1/)).toBeTruthy()
+})
+it('switches between historical and live dashboards from the header',async()=>{
+ render(<App/>);const positions=Socket.sockets.find(s=>s.url.endsWith('/ws/positions'))!
+ const snapshot={session_identity:'demo',generation:1,presentation_timestamp:0,session:{},drivers:[],predictions:[],messages:[],track:{},weather:{},laps:{},connection:{mode:'replay'},replay}
+ act(()=>positions.emit({...stream,current:snapshot,timing_history:[snapshot]}))
+ const historical=await screen.findByRole('button',{name:'Historical'}),live=screen.getByRole('button',{name:'Live'})
+ expect(historical.getAttribute('aria-pressed')).toBe('true');expect((historical as HTMLButtonElement).disabled).toBe(true)
+ fireEvent.click(live)
+ await waitFor(()=>expect(fetch).toHaveBeenCalledWith('/api/mode',expect.objectContaining({method:'POST',body:JSON.stringify({mode:'live'})})))
 })

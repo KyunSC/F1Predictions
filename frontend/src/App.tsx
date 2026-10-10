@@ -1,6 +1,5 @@
+'use client'
 import {useState} from 'react'
-import {createRoot} from 'react-dom/client'
-import './style.css'
 import {usePresentation} from './positions'
 import {TrackMap} from './TrackMap'
 const dash=(v:unknown)=>v===undefined||v===null||v===''?'—':String(v)
@@ -9,8 +8,9 @@ export function App(){
  const {data,stream,online,time}=usePresentation()
  const [error,setError]=useState(''),[busy,setBusy]=useState(false)
  const control=async(action:string,speed?:number)=>{setBusy(true);try{const response=await fetch('/api/replay/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,speed})});if(!response.ok)throw Error(await response.text());await response.json()}catch(e){setError(String(e))}finally{setBusy(false)}}
- const replay=data?.replay; const stale=!online||data?.connection.stale
- return <main><header><a className="brand" href="/">P<span>Ⅱ</span>TWALL<span className="local">LOCAL / F1</span></a><div className={`badge ${stale?'warning':''}`}><i/>{!online?'Dashboard disconnected':replay?'REPLAY MODE':stale?'STALE FEED':'FEED CONNECTED'}</div></header>
+ const switchMode=async(mode:string)=>{setBusy(true);setError('');try{const response=await fetch('/api/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode})});if(!response.ok)throw Error(await response.text());setSelected(null)}catch(e){setError(String(e))}finally{setBusy(false)}}
+ const replay=data?.replay; const stale=!online||data?.connection.stale; const mode=data?.connection.mode
+ return <main><header><a className="brand" href="/">P<span>Ⅱ</span>TWALL<span className="local">LOCAL / F1</span></a><div className="header-actions"><div className={`badge ${stale?'warning':''}`}><i/>{!online?'Dashboard disconnected':replay?'REPLAY MODE':stale?'STALE FEED':'FEED CONNECTED'}</div><div className="mode-switch" role="group" aria-label="Dashboard mode">{[['replay','Historical'],['live','Live']].map(([m,label])=><button key={m} aria-pressed={mode===m} disabled={busy||!online||mode===m} onClick={()=>switchMode(m)}>{label}</button>)}</div></div></header>
  <section className="hero"><div className="eyebrow">{replay?'RECORDED SESSION':data?.connection.live_verified?'LIVE TIMING':'LIVE TIMING · AWAITING VERIFICATION'}</div><h1>{data?.session.Meeting?.Name||'Waiting for session'}</h1><div className="session-meta">{dash(data?.session.Meeting?.Location)} <span>/</span> {dash(data?.session.Name)} <span>/</span> <b>LAP {dash(data?.laps.CurrentLap)} <small>/ {dash(data?.laps.TotalLaps)}</small></b></div></section>
  {(!online||data?.connection.stale)&&<div role="status" className="notice">{!online?'Connecting to the local backend. Displayed data may be out of date.':'Timing data is stale. Waiting for fresh upstream updates.'}</div>}
  {data?.connection.error&&<div className="notice">{data.connection.error}</div>}
@@ -21,5 +21,3 @@ export function App(){
  <aside><section className="panel predictions"><div className="panel-heading"><h2>Pre-race pace</h2><span className="fixed">FIXED</span></div><p className="description">Pace rank predicts relative speed, not finishing position. Lower ratio is faster.</p>{data?.prediction_reason?<div className="empty prediction-empty"><span>↗</span><h3>Awaiting matching predictions</h3><p>{data.prediction_reason}</p></div>:data?.predictions.map(p=><div className="prediction-row" key={p.racing_number}><b>{p.pace_rank}</b><span>{data.drivers.find(d=>d.number===p.racing_number)?.code||p.driver}<small>{Object.values(p.missing_features).some(Boolean)?'Missing inputs: '+Object.entries(p.missing_features).filter(([,v])=>v).map(([k])=>k.replace('Missing','')).join(', '):'All features available'}</small></span><code>{p.predicted_pace_ratio.toFixed(4)}</code></div>)}{data?.prediction_generated_at&&<p className="description">Generated {new Date(data.prediction_generated_at).toLocaleString()}</p>}<div className="panel-note">Predictions stay fixed throughout the race.</div></section>
  <section className="panel race-control"><div className="panel-heading"><h2>Race control</h2><span>MESSAGES</span></div>{data?.messages.length?data.messages.map((m,i)=><article key={i}><time>{m.Utc?m.Utc.slice(11,19):'—'}</time><p>{m.Message||'—'}</p></article>):<p className="empty">No race-control messages.</p>}</section></aside></div><footer>PERSONAL PITWALL <span>Local session · {replay?'replay':data?.connection.live_verified?'live timing received':'live connectivity unverified'} · Approximate track-projected positions</span></footer></main>
 }
-const root=document.getElementById('root')
-if(root)createRoot(root).render(<App/> )

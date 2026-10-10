@@ -5,11 +5,11 @@ this file; edit `AGENTS.md` only.
 
 ## Project
 
-Predicts relative race pace for a target F1 Grand Prix from qualifying performance and
-earlier races in the same season. The main output is a pace ranking, which is distinct
+Predicts relative race pace for a target F1 Grand Prix or sprint from its qualifying
+performance and earlier races and sprints in the same season. The main output is a pace ranking, which is distinct
 from finishing position; the notebook also validates a finishing-order ranker and
 compares podium models. Model logic lives in `f1_race_prediction.ipynb`. A separate
-local dashboard (`dashboard/` FastAPI backend, `frontend/` React/TypeScript) shows live
+local dashboard (`dashboard/` FastAPI backend, `frontend/` Next.js/React/TypeScript) shows live
 timing next to the notebook's exported `dashboard/predictions.json`; it never feeds race
 data into the model or refits it. See `README.md` for the model, metrics, and dashboard.
 
@@ -26,6 +26,45 @@ npm run dev                                            # dashboard backend + fro
 
 FastF1 downloads timing data into `cache/` (gitignored). A cold run can take several
 minutes.
+
+## Running the dashboard
+
+Needs Python 3.12 and Node.js 20.19+. The backend listens on `127.0.0.1:8000`, the
+frontend on `127.0.0.1:5173`; open <http://127.0.0.1:5173>.
+
+Start both services with one command from the repo root:
+
+```bash
+npm run dev          # same as ./start.sh; opens in Historical, toggle Live in the header
+```
+
+`dashboard/run.py` creates `.venv`, installs `requirements.txt` and runs `npm ci` in
+`frontend/` if they are missing, then starts and supervises both services. Ctrl+C stops
+both. It fails if port 8000 or 5173 is already in use. No root-level `npm install` is needed.
+Do not start the services separately; `npm run dev` is the only supported way.
+
+Next.js rewrites in `frontend/next.config.ts` proxy `/api` and the WebSockets to the
+backend, so the frontend needs no backend URL. Run a single backend worker so all tabs
+share one upstream connection and replay clock.
+
+Backend environment variables:
+
+- `F1_MODE=live` starts in live timing; the default is `replay` (Historical). There is
+  one launch command; the header's Historical/Live toggle calls `POST /api/mode`, which
+  cancels the current task and rebuilds `State` in the other mode.
+- `F1_RECORDING=dashboard/recordings/<file>.jsonl` picks the replay recording (with
+  `F1_MODE=replay`).
+- `F1_PREDICTIONS=/absolute/path/predictions.json` overrides the export location.
+- `F1TV_TOKEN=<subscription token>` authenticates the live connection. Without it the
+  backend uses the token saved by `./.venv/bin/python -m fastf1 auth f1tv --authenticate`.
+  F1 only streams car coordinates (`Position.z`) to F1TV Access/Pro subscribers; with no
+  valid token, live timing still works but the track map shows no cars. Never log or
+  record the token.
+
+The backend reads `dashboard/predictions.json` and the recording once at startup, so
+restart it after re-exporting predictions. Before relying on the frontend, run
+`./.venv/bin/python -m dashboard.smoke --seconds 45` to check live-timing access (needs
+network and an active session).
 
 ## How the tests load the notebook
 
@@ -47,27 +86,38 @@ notebook-level constants those functions read (`FEATURES`, `TARGET_COL`,
 These are the point of the project. Do not weaken them, and add a regression test
 when you touch the related code.
 
-- **Never load the target race session.** For the target, only qualifying (`"Q"`) is
-  loaded, even when the notebook is rerun after race day.
-- **Training races are strictly earlier** than the target by scheduled UTC race start.
-  Order by `RaceStartUtc`, never by event name.
+- **Never load the target session.** For a race target, only qualifying (`"Q"`) is
+  loaded. For a sprint target, only sprint qualifying (`"SQ"`) is loaded, never the
+  target's `"S"`, `"Q"` or `"R"`. This holds even when the notebook is rerun afterwards.
+- **Training sessions are strictly earlier** than the target by scheduled UTC start.
+  Order by `RaceStartUtc`, never by event name. `RaceStartUtc` is the UTC start of the
+  *scored* session (Grand Prix or sprint), so a weekend's sprint and GP are separate rows.
 - **`PriorPace` uses `shift()` before the expanding mean**, so a row never sees its own
   race result.
 - **Imputation and scaling are fitted inside each walk-forward fold** (`make_model()`
   pipeline), never on the full pool.
-- **Training stays within 2026.** Earlier seasons are excluded because of the
-  regulation reset.
+- **Training rows and targets stay within 2026** because of the regulation reset.
+  Earlier seasons (`VENUE_HISTORY_SEASONS`, 2023–2025) enter only as per-driver
+  venue-history features (`VenuePace`, `VenueQualiRatio`), built the same way for every
+  2026 session's circuit. `load_venue_history` refuses any season at or after the target
+  season, and `add_venue_history` rejects such history rows.
 - **Fail loudly** when target qualifying has no usable times; do not substitute
   averages. Missing sessions for training races are reported and skipped, and at
   least `MIN_TRAIN_RACES` (4) usable races are required.
 
 ## Target configuration
 
-`TARGET_RACE = (2026, "Bahrain Grand Prix")` refers to the relocated **October 4 race at
-Sepang/Kuala Lumpur**. FastF1 may still label the country as Bahrain, so
-`resolve_schedule` validates location and date and rejects a stale Sakhir entry. When
-changing the target, update the venue check, the README, and the schedule test
-together.
+`TARGET_RACE = (2026, "Singapore Grand Prix")` with `TARGET_KIND = "sprint"` targets the
+**Singapore Sprint at Marina Bay, October 10 (09:00 UTC)**. `TARGET_KIND` is `"race"`
+(`Q` → `R`) or `"sprint"` (`SQ` → `S`), per `SESSION_CODES`. Training pools every earlier
+2026 Grand Prix and sprint; a sprint's `RaceId` ends in `" Sprint"`.
+
+`resolve_schedule` checks the target against `EXPECTED_VENUES`, keyed by
+`(year, event, kind)`: location and the scored session's UTC date. It also keeps the
+relocated 2026 Bahrain GP (October 4, Sepang/Kuala Lumpur) and rejects a stale Sakhir
+entry. When changing the target, update `EXPECTED_VENUES`, the README, and the schedule
+tests together. The dashboard export records the session `name` (`"Race"`/`"Sprint"`)
+and date, and `dashboard/state.py:match_predictions` requires both to match.
 
 ## Conventions
 

@@ -1,7 +1,14 @@
-"""Unauthenticated SignalR Core JSON protocol. Actual Position.z coordinates; CarData.z excluded."""
+"""SignalR Core JSON protocol. Actual Position.z coordinates; CarData.z excluded.
+
+F1 only streams Position.z to F1TV subscribers. Without a subscription token the
+connection still receives timing, and the track map reports why it is empty.
+"""
 import asyncio
+import base64
 import json
+import os
 import time
+from pathlib import Path
 from urllib.parse import quote
 import httpx
 import websockets
@@ -9,6 +16,39 @@ from .state import TOPICS
 
 BASE = 'https://livetiming.formula1.com/signalrcore'
 RS = '\x1e'
+SIGN_IN = 'run `./.venv/bin/python -m fastf1 auth f1tv --authenticate` or set F1TV_TOKEN, then restart'
+
+
+def token_expiry(token):
+    try:
+        payload = token.split('.')[1]
+        return json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4))).get('exp')
+    except (IndexError, ValueError, AttributeError):
+        return None
+
+
+def load_token(env=os.environ, path=None, now=None):
+    """Return (token, problem). The token itself is never logged or recorded.
+
+    FastF1's sign-in stores the token in its user data directory.
+    """
+    token = env.get('F1TV_TOKEN', '').strip()
+    if not token:
+        if path is None:
+            import platformdirs
+            path = Path(platformdirs.user_data_dir('fastf1')) / 'f1auth.json'
+        try:
+            token = path.read_text().strip()
+        except OSError:
+            token = ''
+    if not token:
+        return None, f'Car positions need an F1TV subscription: {SIGN_IN}'
+    expiry = token_expiry(token)
+    if expiry is None:
+        return None, f'F1TV token is malformed: {SIGN_IN}'
+    if expiry < (now if now is not None else time.time()):
+        return None, f'F1TV token expired: {SIGN_IN}'
+    return token, None
 
 
 def decode_frame(frame):
@@ -31,16 +71,18 @@ def feed_events(message):
                     yield topic, result[topic], None
 
 
-async def connect(state, record_path):
+async def connect(state, record_path, token_loader=load_token):
+    token, state.positions.auth_problem = token_loader()
+    auth = {'Authorization': f'Bearer {token}'} if token else {}
     async with httpx.AsyncClient(timeout=15) as client:
         await client.options(BASE + '/negotiate')
-        response = await client.post(BASE + '/negotiate?negotiateVersion=1')
+        response = await client.post(BASE + '/negotiate?negotiateVersion=1', headers=auth)
         response.raise_for_status()
         negotiated = response.json()
         token = negotiated.get('connectionToken') or negotiated['connectionId']
         cookies = '; '.join(f'{k}={v}' for k, v in client.cookies.items())
         url = BASE.replace('https:', 'wss:') + '?id=' + quote(token, safe='')
-        async with websockets.connect(url, additional_headers={'Cookie': cookies}, open_timeout=15) as ws:
+        async with websockets.connect(url, additional_headers={'Cookie': cookies, **auth}, open_timeout=15) as ws:
             await ws.send(json.dumps({'protocol': 'json', 'version': 1}) + RS)
             frames = decode_frame(await asyncio.wait_for(ws.recv(), 15))
             if not frames or frames[0].get('error'):

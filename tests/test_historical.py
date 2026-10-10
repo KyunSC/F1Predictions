@@ -15,6 +15,20 @@ class HistoricalTests(unittest.TestCase):
         self.assertTrue(events[0]['reconstructed'])
         with self.assertRaises(ValueError):parse_stream('00:99:00.000{}','TimingData')
 
+    def test_download_accepts_accented_archive_folders_but_not_traversal(self):
+        from unittest import mock
+        from dashboard.historical import download
+        relative='2025/2025-11-09_São_Paulo_Grand_Prix/2025-11-09_Race/SessionInfo.jsonStream'
+        with tempfile.TemporaryDirectory() as tmp, mock.patch('dashboard.historical.subprocess.run') as run:
+            run.return_value.stdout='﻿00:00:00.000{}'.encode()
+            self.assertEqual(download(relative,Path(tmp)),'00:00:00.000{}')
+            self.assertTrue(run.call_args[0][0][-1].endswith('/2025-11-09_S%C3%A3o_Paulo_Grand_Prix/2025-11-09_Race/SessionInfo.jsonStream'))
+            self.assertEqual(download(relative,Path(tmp)),'00:00:00.000{}')
+            self.assertEqual(run.call_count,1)
+            for bad in ('2025/../Index.json','2025//Index.json','/etc/passwd','2025/a b.json','2025/x?y=1'):
+                with self.assertRaises(ValueError):download(bad,Path(tmp))
+            self.assertEqual(run.call_count,1)
+
     def test_import_uses_index_preserves_clock_and_replay_order(self):
         index={'Meetings':[{'Name':'Test Grand Prix','Sessions':[{'Name':'Race','Path':'2025/test/'}]}]}
         def fetch(path):

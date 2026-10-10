@@ -52,6 +52,7 @@ class Positions:
     def __init__(self):
         self.generation = 0
         self.sequence = 0
+        self.auth_problem = None
         self.reset()
 
     def reset(self):

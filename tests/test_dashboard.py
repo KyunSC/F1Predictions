@@ -12,10 +12,10 @@ from fastapi.testclient import TestClient
 from dashboard.app import app
 from dashboard.state import State, merge, match_predictions
 from dashboard.replay import Replay
-from dashboard.live import decode_frame, feed_events, run_live, TOPICS
+from dashboard.live import connect, decode_frame, feed_events, load_token, run_live, TOPICS
 from test_prediction import NS
 
-INFO = dict(Key=1, Type='Race', StartDate='2026-10-04T15:00:00', Meeting={'Location':'Kuala Lumpur'})
+INFO = dict(Key=1, Type='Race', Name='Race', StartDate='2026-10-04T15:00:00', Meeting={'Location':'Kuala Lumpur'})
 EXPORT = dict(session=dict(year=2026,venue='Sepang',race_date='2026-10-04'), drivers=[dict(racing_number='44',pace_rank=2)])
 
 
@@ -87,6 +87,45 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(delays,[1,2,4,8]); self.assertEqual(state.reconnects,4)
         self.assertEqual(state.connection,'reconnecting')
 
+    def test_f1tv_token_loading(self):
+        import base64
+        def jwt(exp):
+            return 'h.' + base64.urlsafe_b64encode(json.dumps({'exp': exp}).encode()).decode().rstrip('=') + '.s'
+        with tempfile.TemporaryDirectory() as tmp:
+            stored, missing = Path(tmp)/'f1auth.json', Path(tmp)/'none.json'
+            stored.write_text(jwt(200))
+            self.assertEqual(load_token({}, stored, now=100), (jwt(200), None))
+            self.assertEqual(load_token({'F1TV_TOKEN': jwt(300)}, stored, now=100)[0], jwt(300))
+            token, problem = load_token({}, stored, now=300)
+            self.assertIsNone(token); self.assertIn('expired', problem)
+            token, problem = load_token({}, missing, now=100)
+            self.assertIsNone(token); self.assertIn('F1TV subscription', problem)
+            self.assertIn('malformed', load_token({'F1TV_TOKEN': 'not-a-jwt'}, missing)[1])
+
+    def test_live_connection_sends_token_and_explains_missing_positions(self):
+        calls = {}
+        class Client:
+            cookies = {}
+            def __init__(self, **kwargs): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): pass
+            async def options(self, url): pass
+            async def post(self, url, headers=None):
+                calls['negotiate'] = headers
+                return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {'connectionToken': 't'})
+        def ws(url, additional_headers, open_timeout):
+            calls['websocket'] = additional_headers
+            raise OSError('stop')
+        state = State(mode='live')
+        with patch('dashboard.live.httpx.AsyncClient', Client), patch('dashboard.live.websockets.connect', ws):
+            with self.assertRaises(OSError): asyncio.run(connect(state, Path('/unused'), lambda: ('tok', None)))
+            self.assertEqual(calls['negotiate']['Authorization'], 'Bearer tok')
+            self.assertEqual(calls['websocket']['Authorization'], 'Bearer tok')
+            with self.assertRaises(OSError): asyncio.run(connect(state, Path('/unused'), lambda: (None, 'needs F1TV')))
+            self.assertNotIn('Authorization', calls['negotiate']); self.assertNotIn('Authorization', calls['websocket'])
+        state.connection = 'connected'
+        self.assertEqual(state.position_snapshot()['reason'], 'needs F1TV')
+
     def test_driver_numbers_come_only_from_qualifying(self):
         results = pd.DataFrame(dict(Abbreviation=['HAM'], DriverNumber=['44'],
             FirstName=['Lewis'], LastName=['Hamilton'], TeamName=['Ferrari'], Position=[1],
@@ -114,6 +153,22 @@ class DashboardTests(unittest.TestCase):
             frame.loc[0,'DriverNumber']=None
             with self.assertRaises(ValueError): NS['export_predictions'](frame,event,2026,path)
 
+    def test_sprint_export_matches_only_the_sprint(self):
+        frame=pd.DataFrame([dict(DriverNumber='44',Driver='HAM',FullName='Lewis Hamilton',Team='Ferrari',PaceRank=1,PredictedPaceRatio=.99,MissingQualiTime=False,MissingQualifyingPosition=False,MissingPriorPace=False)])
+        event=pd.Series(dict(Location='Marina Bay',RaceStartUtc=pd.Timestamp('2026-10-10 09:00',tz='UTC'),EventName='Singapore Grand Prix',Kind='sprint'))
+        sprint=dict(Key=2, Type='Race', Name='Sprint', StartDate='2026-10-10T17:00:00', GmtOffset='08:00:00', Meeting={'Location':'Marina Bay'})
+        with tempfile.TemporaryDirectory() as tmp:
+            result=NS['export_predictions'](frame,event,2026,Path(tmp)/'prediction.json')
+        self.assertEqual(result['session']['race_date'],'2026-10-10')
+        self.assertEqual(result['session']['name'],'Sprint')
+        self.assertEqual(match_predictions(result,sprint)[0],result['drivers'])
+        for patch_info in [dict(Name='Race',StartDate='2026-10-11T20:00:00'),dict(Name='Race'),
+                           dict(Type='Qualifying',Name='Qualifying',StartDate='2026-10-10T21:00:00'),
+                           dict(Type='Qualifying',Name='Sprint Qualifying',StartDate='2026-10-09T20:30:00')]:
+            self.assertFalse(match_predictions(result,dict(sprint,**patch_info))[0],patch_info)
+        legacy=dict(EXPORT,session={k:v for k,v in EXPORT['session'].items() if k!='name'})
+        self.assertEqual(match_predictions(legacy,dict(INFO,Name='Anything'))[0],EXPORT['drivers'])
+
     def test_http_websocket_and_invalid_control(self):
         with patch.dict('os.environ',{'F1_MODE':'replay'}), TestClient(app) as client:
             self.assertEqual(client.get('/api/state').status_code,200)
@@ -122,3 +177,16 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(client.post('/api/replay/control',json={'action':'speed','speed':3}).status_code,422)
             with client.websocket_connect('/ws') as ws:
                 self.assertIn('drivers',ws.receive_json())
+
+    def test_mode_switch_rebuilds_state(self):
+        async def idle_live(state, path):
+            await asyncio.Event().wait()
+        with patch.dict('os.environ',{'F1_MODE':'replay'}), patch('dashboard.app.run_live',idle_live), TestClient(app) as client:
+            replay_state=app.state.timing
+            self.assertEqual(client.post('/api/mode',json={'mode':'live'}).json()['connection']['mode'],'live')
+            self.assertIsNot(app.state.timing,replay_state)
+            self.assertIsNone(app.state.replay)
+            self.assertEqual(client.post('/api/replay/control',json={'action':'pause'}).status_code,409)
+            self.assertEqual(client.post('/api/mode',json={'mode':'replay'}).json()['connection']['mode'],'replay')
+            self.assertEqual(client.post('/api/replay/control',json={'action':'pause'}).status_code,200)
+            self.assertEqual(client.post('/api/mode',json={'mode':'bogus'}).status_code,422)

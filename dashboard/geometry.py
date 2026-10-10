@@ -25,15 +25,23 @@ def resolve(info):
     return int(key), int(year)
 
 
+# Feed Location and MultiViewer location name the same venue differently.
+VENUE_ALIASES = [{'sepang', 'kuala lumpur', 'sepang international circuit'},
+                 {'marina bay', 'singapore'}]
+
+
 def validate_provider(data, circuit, year, info):
-    if data.get('circuitKey') != circuit or data.get('year') != year:
+    # MultiViewer serves the circuit's most recent layout it has, which can be an
+    # earlier season (Singapore 2026 returns the 2023 Marina Bay layout). Never accept
+    # a later season's layout.
+    provider_year = data.get('year')
+    if data.get('circuitKey') != circuit or not isinstance(provider_year, int) or provider_year > year:
         raise ValueError('Provider geometry circuit/year differs from requested session')
     location = str(info.get('Meeting', {}).get('Location', '')).casefold()
     provider = str(data.get('location', '')).casefold()
-    aliases = {'sepang', 'kuala lumpur', 'sepang international circuit'}
-    if not provider or (location != provider and not {location, provider} <= aliases):
+    if not provider or (location != provider and not any({location, provider} <= a for a in VENUE_ALIASES)):
         raise ValueError('Provider physical venue differs from session')
-    return validate(data)
+    return dict(validate(data), layout_year=provider_year)
 
 
 def validate(data):
@@ -89,7 +97,7 @@ class Geometry:
                     self.cache.mkdir(parents=True, exist_ok=True)
                     path.write_text(json.dumps(data))
             value = dict(validate(data), session_identity=identity, geometry_id=geometry_id, available=True,
-                         reason=None, synthetic=synthetic, attribution='Synthetic demo' if synthetic else 'MultiViewer', provenance=provenance)
+                         reason=None, synthetic=synthetic, attribution='Synthetic demo' if synthetic else f"MultiViewer · {data['year']} layout", provenance=provenance)
         except Exception as exc:
             value = dict(session_identity=identity, geometry_id=geometry_id, available=False, reason=str(exc),
                          outline=[], bounds=None, rotation=None, coordinate_system='F1 Cartesian decimetres',

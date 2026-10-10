@@ -1,0 +1,23 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "frontend/src/style.css"
+        ],
+        "createdAt": "2026-10-10T09:48:04.810Z",
+        "reason": "user confirmed: .driver border-left is the per-driver team-color stripe in the F1 timing tower"
+      },
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-10-10T09:48:04.823Z",
+        "reason": "user confirmed: Inter body text paired with Barlow Condensed display face is intentional"
+      }
+    ]
+  }
+}

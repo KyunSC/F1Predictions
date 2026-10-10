@@ -9,6 +9,7 @@ import json
 import re
 import subprocess
 from pathlib import Path
+from urllib.parse import quote
 from .state import TOPICS
 
 BASE = 'https://livetiming.formula1.com/static/'
@@ -16,16 +17,18 @@ CACHE = Path(__file__).resolve().parents[1] / 'cache' / 'historical'
 
 
 def download(relative, cache=CACHE):
-    if not re.fullmatch(r'[A-Za-z0-9_./-]+', relative) or '..' in relative.split('/'):
+    # Archive folders use accented event names (e.g. 2025 "São_Paulo"), so allow
+    # Unicode word characters per segment while still rejecting traversal.
+    if any(s in ('.', '..') or not re.fullmatch(r'[\w.-]+', s) for s in relative.split('/')):
         raise ValueError('Invalid archive path')
     path = cache / relative
     if path.exists():
         return path.read_text(encoding='utf-8-sig')
     result = subprocess.run(['curl', '--fail', '--silent', '--show-error', '--max-time', '60',
-                             BASE + relative], capture_output=True, check=True)
+                             BASE + quote(relative)], capture_output=True, check=True)
     text = result.stdout.decode('utf-8-sig')
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text)
+    path.write_text(text, encoding='utf-8')
     return text
 
 

@@ -14,9 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Start the local F1 dashboard. Ctrl+C stops both services.')
-    parser.add_argument('--live', action='store_true', help='Receive live timing instead of the default demo replay')
-    args = parser.parse_args()
+    argparse.ArgumentParser(description='Start the local F1 dashboard. Switch between historical replay and '
+                            'live timing from the header. Ctrl+C stops both services.').parse_args()
     children = []
 
     def stop(signum, frame):
@@ -43,16 +42,16 @@ def main():
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if check.returncode:
             subprocess.run([str(python), '-m', 'pip', 'install', '-r', str(ROOT / 'requirements.txt')], check=True)
-        if not (ROOT / 'frontend/node_modules/vite/bin/vite.js').exists():
+        next_bin = ROOT / 'frontend/node_modules/next/dist/bin/next'
+        if not next_bin.exists():
             subprocess.run(['npm', 'ci'], cwd=ROOT / 'frontend', check=True)
         env = os.environ.copy()
-        if args.live:
-            env['F1_MODE'] = 'live'
-        mode = env.get('F1_MODE', 'replay')
-        print(f'\nStarting F1 dashboard ({mode}). Press Ctrl+C to stop both services.\n', flush=True)
+        env.setdefault('NEXT_TELEMETRY_DISABLED', '1')
+        print('\nStarting F1 dashboard. Switch Historical/Live from the header; Ctrl+C stops both services.\n',
+              flush=True)
         commands = [
             [str(python), '-m', 'uvicorn', 'dashboard.app:app', '--host', '127.0.0.1', '--port', '8000'],
-            ['node', str(ROOT / 'frontend/node_modules/vite/bin/vite.js'), '--host', '127.0.0.1'],
+            ['node', str(next_bin), 'dev', '--hostname', '127.0.0.1', '--port', '5173'],
         ]
         for command, cwd in zip(commands, [ROOT, ROOT / 'frontend']):
             children.append(subprocess.Popen(command, cwd=cwd, env=env, start_new_session=True))
@@ -65,7 +64,7 @@ def main():
             if not ready:
                 try:
                     for url in ('http://127.0.0.1:8000/api/state', 'http://127.0.0.1:5173'):
-                        with urlopen(url, timeout=1) as response:
+                        with urlopen(url, timeout=10) as response:
                             if response.status != 200:
                                 raise OSError('Service not ready')
                     ready = True

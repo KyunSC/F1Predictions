@@ -14,15 +14,12 @@ from .geometry import Geometry
 ROOT = Path(__file__).resolve().parent
 
 
-@asynccontextmanager
-async def lifespan(app):
-    mode = os.getenv('F1_MODE', 'replay')
-    if mode not in ('live', 'replay'):
-        raise ValueError('F1_MODE must be live or replay')
-    prediction_path = Path(os.getenv('F1_PREDICTIONS', str(ROOT / 'predictions.json')))
-    predictions = json.loads(prediction_path.read_text()) if prediction_path.exists() else None
-    app.state.timing = State(predictions, mode)
-    app.state.geometry = Geometry()
+MODES = ('live', 'replay')
+
+
+def start_mode(app, mode):
+    """Build fresh timing state for `mode` and start its background task."""
+    app.state.timing = State(app.state.predictions, mode)
     app.state.replay = None
     if mode == 'replay':
         app.state.replay = Replay(app.state.timing, Path(os.getenv('F1_RECORDING', str(ROOT / 'recordings/demo.jsonl'))))
@@ -33,16 +30,32 @@ async def lifespan(app):
                 app.state.replay.advance(now - previous)
                 previous = now
                 await asyncio.sleep(.05)
-        task = asyncio.create_task(advance())
+        app.state.task = asyncio.create_task(advance())
     else:
         recording = ROOT / 'recordings' / f'live-{int(time.time())}.jsonl'
-        task = asyncio.create_task(run_live(app.state.timing, recording))
+        app.state.task = asyncio.create_task(run_live(app.state.timing, recording))
+
+
+async def stop_mode(app):
+    app.state.task.cancel()
+    with suppress(asyncio.CancelledError):
+        await app.state.task
+
+
+@asynccontextmanager
+async def lifespan(app):
+    mode = os.getenv('F1_MODE', 'replay')
+    if mode not in MODES:
+        raise ValueError('F1_MODE must be live or replay')
+    prediction_path = Path(os.getenv('F1_PREDICTIONS', str(ROOT / 'predictions.json')))
+    app.state.predictions = json.loads(prediction_path.read_text()) if prediction_path.exists() else None
+    app.state.geometry = Geometry()
+    app.state.mode_lock = asyncio.Lock()
+    start_mode(app, mode)
     yield
     if app.state.geometry.task:
         app.state.geometry.task.cancel()
-    task.cancel()
-    with suppress(asyncio.CancelledError):
-        await task
+    await stop_mode(app)
 
 
 app = FastAPI(lifespan=lifespan)
@@ -99,4 +112,19 @@ async def control(body: Control):
         app.state.replay.control(body.action, body.speed)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    return app.state.timing.snapshot()
+
+
+class ModeSwitch(BaseModel):
+    mode: str
+
+
+@app.post('/api/mode')
+async def switch_mode(body: ModeSwitch):
+    if body.mode not in MODES:
+        raise HTTPException(422, 'mode must be live or replay')
+    async with app.state.mode_lock:
+        if app.state.timing.mode != body.mode:
+            await stop_mode(app)
+            start_mode(app, body.mode)
     return app.state.timing.snapshot()

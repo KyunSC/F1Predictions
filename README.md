@@ -1,8 +1,9 @@
 # F1 Race Predictions
 
-Predict relative race pace using qualifying performance and earlier races from the
-same season. The notebook defaults to the **2026 Bahrain Grand Prix at Sepang,
-Malaysia (October 4)**. Its main output is a pace ranking. A CatBoost finishing-order
+Predict relative race pace using qualifying performance and earlier races and sprints
+from the same season. The notebook defaults to the **2026 Singapore Sprint at Marina
+Bay (October 10)**; set `TARGET_KIND = "race"` to predict a Grand Prix instead. Its main
+output is a pace ranking. A CatBoost finishing-order
 ranker is also validated, and its order is shown only if it beats simple baselines.
 A podium section compares nine models, including logistic, tree and Monte Carlo
 probabilities, on the same walk-forward folds.
@@ -21,31 +22,45 @@ cached under `cache/`; the first run can take several minutes.
 The configuration defaults to:
 
 ```python
-TARGET_RACE = (2026, "Bahrain Grand Prix")
+TARGET_RACE = (2026, "Singapore Grand Prix")
+TARGET_KIND = "sprint"   # or "race"
+SESSION_CODES = {"race": ("Q", "R"), "sprint": ("SQ", "S")}
 ```
 
 The notebook resolves the exact event name from FastF1's schedule, then loads
-sessions by round number. For this event it requires the October 4 race at
-Sepang/Kuala Lumpur, rejecting an outdated Sakhir schedule. FastF1 may still label
-the country as Bahrain; the physical location and race date identify the venue.
+sessions by round number. `EXPECTED_VENUES` pins known targets to a location and the
+UTC date of the scored session: the Singapore Sprint must be at Marina Bay on
+October 10, and the relocated Bahrain GP at Sepang/Kuala Lumpur on October 4 (an
+outdated Sakhir entry is rejected).
 
-Training rounds are selected automatically by race start time, strictly before
-the target. For this target that means rounds 1–15, through Azerbaijan. Missing
-sessions are reported and skipped; at least four usable races are required.
-Target qualifying must contain usable times. The target race session is never
-loaded, including when the notebook is rerun after the race.
-If qualifying results contain no times, the notebook retries with official timing
-laps and race-control messages so FastF1 can reconstruct the classification.
+Training sessions are selected automatically: every 2026 Grand Prix **and** sprint
+whose scored session starts strictly before the target, ordered by UTC start. For the
+Singapore Sprint (09:00 UTC) that is all 16 earlier Grands Prix (rounds 1–16, through
+the October 4 race at Sepang) and the 5 earlier sprints (China, Miami, Canada, British,
+Dutch): 21 sessions. Sprint and GP rows can be pooled because every quantity is a ratio
+within its own session. Each sprint is its own group (`RaceId` ends in `Sprint`), and a
+weekend's sprint precedes its Grand Prix in the form features. No sprint flag is added
+to the features. Missing sessions are reported and skipped; at least four usable
+sessions are required.
+
+For the target, only sprint qualifying (`SQ`) is loaded. The sprint itself, and the
+weekend's later qualifying and Grand Prix, are never loaded, including when the notebook
+is rerun afterwards. Target qualifying must contain usable times. If qualifying results
+contain no times, the notebook retries with official timing laps and race-control
+messages so FastF1 can reconstruct the classification. That fallback matters for
+sprint qualifying, which the Ergast-compatible results service does not provide.
 
 ## Model
 
-Ridge regression (`alpha=10`) uses three pre-race features:
+Ridge regression (`alpha=10`) uses five pre-race features:
 
 | Feature | Meaning |
 |---|---|
-| `QualiRatio` | Best lap across Q1/Q2/Q3 divided by the fastest qualifying lap |
+| `QualiRatio` | Best lap across Q1/Q2/Q3 (SQ1/SQ2/SQ3 for a sprint) divided by the fastest qualifying lap |
 | `QualifyingPosition` | Qualifying classification, before grid penalties |
-| `PriorPace` | Driver's average pace ratio from strictly earlier races |
+| `PriorPace` | Driver's average pace ratio from strictly earlier races and sprints |
+| `VenuePace` | Driver's mean pace ratio at this circuit in 2023–2025 Grands Prix and sprints |
+| `VenueQualiRatio` | Driver's mean qualifying ratio at this circuit in 2023–2025 qualifying |
 
 The target, `PaceRatio`, is a driver's median representative race lap divided by
 the median of the drivers' race paces. Lower is faster. In/out laps and laps slower
@@ -73,9 +88,10 @@ small.
 | `PriorPace` | As above |
 | `PriorFinish` | Mean classification over the driver's last three earlier races |
 | `PriorNotClassifiedRate` | Share of earlier races not classified (retired or did not start) |
+| `VenuePace`, `VenueQualiRatio` | As above |
 
-For the target race, the race session is never loaded, so `GridPosition` defaults to
-qualifying position. Set `TARGET_GRID` (e.g. `{"VER": 20}`) once grid penalties are known.
+For the target, the scored session is never loaded, so `GridPosition` defaults to
+the qualifying position (sprint qualifying for a sprint). Set `TARGET_GRID` (e.g. `{"VER": 20}`) once grid penalties are known.
 
 ### Podium comparison
 
@@ -98,8 +114,18 @@ P(win) is reported for the simulation and grid-slot rate only: the logistic regr
 tree are trained on the top-3 label, and a win classifier would have about one positive per
 race to learn from.
 
-Training stays within 2026 for this prediction. Earlier seasons are excluded to
-avoid assuming their competitive order carries across the regulation change.
+Training rows and targets stay within 2026, so the model does not assume that an
+earlier season's competitive order carries across the regulation change. Earlier seasons
+enter only through the two venue-history features. For every 2026 session, not just
+Singapore, the notebook loads that circuit's 2023–2025 qualifying, Grands Prix and sprints
+(`VENUE_HISTORY_SEASONS`). It then averages each driver's qualifying ratio and pace ratio
+there. Circuits are matched by FastF1 location (with aliases for renamed locations such as
+Miami Gardens/Miami), so the 2026 Barcelona race matches earlier Spanish Grands Prix and
+Madrid and Sepang have no history. Because every training session gets the same features,
+the walk-forward learns and scores how much circuit history is worth. Drivers without
+history at a circuit get the fold's training mean. These numbers mostly reflect the car a
+driver had in those seasons, so they are a weak signal about the driver at that circuit.
+The first run downloads about 100 earlier-season sessions.
 
 ## Validation
 
@@ -118,85 +144,115 @@ races alphabetically, invalidating its chronological validation claims. Use the
 corrected notebook's executed results to assess performance; improvement over the
 baselines is not assumed.
 
-The verified run loaded all 15 earlier races and evaluated 11 held-out races
-(238 driver-races):
+The verified run (October 10, 2026, Singapore Sprint target, venue history included)
+loaded all 21 earlier scored sessions (16 Grands Prix, 5 sprints) and 96 earlier-season
+venue-history sessions. 2025 Miami qualifying has no usable times in FastF1 and was skipped.
+It evaluated 17 held-out sessions, 13 Grands Prix and 4 sprints (368 driver-sessions with
+race pace):
 
 | Metric | Model | Baseline |
 |---|---:|---:|
-| Pace MAE, all rows | 0.007003 | 0.013719 (field median) |
-| Pace MAE, rows with qualifying times | 0.006891 | 0.021788 (qualifying ratio) |
-| Mean per-race Spearman | 0.902341 | 0.894571 (qualifying order) |
+| Pace MAE, all rows | 0.006858 | 0.013386 (field median) |
+| Pace MAE, rows with qualifying times | 0.006777 | 0.022341 (qualifying ratio) |
+| Mean per-session Spearman | 0.900344 | 0.898312 (qualifying order) |
+
+The same scores on the 4 held-out sprints only (Miami, Canada, British, Dutch; 86 rows):
+
+| Metric | Model | Baseline |
+|---|---:|---:|
+| Pace MAE, all rows | 0.004870 | 0.012234 (field median) |
+| Pace MAE, rows with qualifying times | 0.004716 | 0.022647 (qualifying ratio) |
+| Mean per-sprint Spearman | 0.920491 | 0.932005 (sprint qualifying order) |
+
+Four sprints is a very small sample. On them the model is calibrated better than the
+baselines but orders drivers no better than sprint qualifying does.
+
+**Venue history did not help.** The notebook refits the pace model on the same folds without
+`VenuePace` and `VenueQualiRatio`:
+
+| Folds | Features | Pace MAE | Mean Spearman |
+|---|---|---:|---:|
+| All 17 | With venue history | 0.006858 | 0.900344 |
+| All 17 | Without venue history | **0.006807** | **0.903830** |
+| 4 sprints | With venue history | 0.004870 | 0.920491 |
+| 4 sprints | Without venue history | **0.004755** | **0.931028** |
+
+The differences are small and untested, but they all point the same way: 2023–2025 results at
+a circuit add nothing measurable beyond 2026 qualifying and form. The features remain in the
+configuration on request; `VENUE_FEATURES = []` removes them.
 
 The finishing-order ranker uses the same walk-forward folds. It is compared with grid order
-and with the Ridge pace prediction ranked within each race, using position MAE, per-race
+and with the Ridge pace prediction ranked within each session, using position MAE, per-session
 Spearman correlation and top-three overlap (share of the actual podium predicted in the
 top three). It is adopted only if it beats both baselines on mean position MAE and mean
-Spearman. Verified run, 11 held-out races (242 classified driver-races):
+Spearman, over all folds. Verified run, 17 held-out sessions (374 classified driver-sessions):
 
-| Method | Position MAE | Spearman | Top-3 overlap |
-|---|---:|---:|---:|
-| CatBoost ranker | 3.826 | 0.630 | 0.424 |
-| Grid order | 3.521 | 0.631 | 0.576 |
-| Ridge pace ranking | **3.430** | **0.669** | **0.606** |
+| Method | Position MAE | Spearman | Top-3 overlap | Sprints only: MAE | Spearman | Top-3 |
+|---|---:|---:|---:|---:|---:|---:|
+| CatBoost ranker | 3.289 | 0.706 | 0.569 | 2.227 | 0.869 | 0.667 |
+| Grid order | **3.128** | 0.697 | 0.647 | **1.773** | **0.888** | **0.833** |
+| Ridge pace ranking | 3.193 | **0.714** | **0.667** | 2.182 | 0.861 | **0.833** |
 
-The ranker is **not adopted**. A small exploratory sweep (depth 2–3, fewer iterations,
-`PairLogit`/`QuerySoftMax`, reduced feature sets, other seeds) did not change this. The best
-variant only matched the Ridge ranking on MAE (3.438), and was selected on these same
-held-out races. With 15 races the pace ranking remains the best available finishing order.
-The check runs again on every execution, so the ranker is adopted automatically if it
-starts winning as the season pool grows.
+The ranker is **not adopted**. An earlier exploratory sweep (depth 2–3, fewer iterations,
+`PairLogit`/`QuerySoftMax`, reduced feature sets, other seeds), run on the 15-race Bahrain
+pool, did not change the decision there and was selected on those same held-out races. The
+check runs again on every execution, so the ranker is adopted automatically if it starts
+winning as the season pool grows.
 
 ### Podium comparison results
 
-Same 11 held-out races, scored on the same 242 driver-races (33 podium places). Podium
-overlap is correct places out of three; winner and exact order are the share of races
-where the predicted winner or the predicted top three in order was right. Brier score and
-log loss are per-driver podium (yes/no) probabilities, averaged per race; probabilities are
-clipped to [0.001, 0.999] for log loss.
+Same 17 held-out sessions, scored on the same 374 driver-sessions (51 podium places).
+Podium overlap is correct places out of three; winner and exact order are the share of
+sessions where the predicted winner or the predicted top three in order was right. Brier
+score and log loss are per-driver podium (yes/no) probabilities, averaged per session;
+probabilities are clipped to [0.001, 0.999] for log loss.
 
 | Model | Podium overlap | Winner correct | Exact order | Brier | Log loss | Overlap diff vs Ridge [95% CI] |
 |---|---:|---:|---:|---:|---:|---|
-| Grid order | 0.576 | 0.545 | 0.000 | | | -0.030 [-0.091, 0.000] |
-| Qualifying order | 0.576 | 0.545 | 0.000 | | | -0.030 [-0.091, 0.000] |
-| Prior finish | 0.364 | 0.364 | 0.000 | | | -0.242 [-0.424, -0.061] (worse) |
-| Ridge pace | **0.606** | 0.455 | **0.091** | | | reference |
-| CatBoost | 0.424 | 0.364 | 0.000 | | | -0.182 [-0.273, -0.091] (worse) |
-| Logistic | **0.606** | 0.545 | 0.000 | 0.070 | 0.217 | 0.000 [-0.091, 0.091] |
-| Shallow tree | 0.545 | 0.455 | 0.000 | 0.076 | 0.230 | -0.061 [-0.152, 0.000] |
-| Simulation | 0.545 | 0.545 | 0.000 | 0.070 | **0.212** | -0.061 [-0.152, 0.000] |
-| Grid-slot rate | 0.576 | 0.545 | 0.000 | 0.072 | 0.231 | -0.030 [-0.091, 0.000] |
+| Grid order | 0.647 | **0.647** | 0.000 | | | -0.020 [-0.059, 0.000] |
+| Qualifying order | 0.627 | **0.647** | 0.000 | | | -0.039 [-0.098, 0.000] |
+| Prior finish | 0.451 | 0.118 | 0.000 | | | -0.216 [-0.294, -0.137] (worse) |
+| Ridge pace | **0.667** | **0.647** | **0.059** | | | reference |
+| CatBoost | 0.569 | 0.471 | 0.000 | | | -0.098 [-0.196, -0.000] (worse) |
+| Logistic | 0.627 | 0.588 | 0.000 | 0.067 | 0.214 | -0.039 [-0.118, 0.039] |
+| Shallow tree | 0.588 | 0.529 | **0.059** | 0.078 | 0.238 | -0.078 [-0.157, 0.000] |
+| Simulation | 0.647 | 0.529 | **0.059** | **0.066** | **0.201** | -0.020 [-0.059, 0.000] |
+| Grid-slot rate | 0.647 | **0.647** | 0.000 | **0.066** | 0.212 | -0.020 [-0.059, 0.000] |
 
-Intervals are paired percentile bootstraps over the 11 races (10,000 resamples). A model
+Intervals are paired percentile bootstraps over the 17 sessions (10,000 resamples). A model
 is called better only if its interval excludes zero.
 
-**No model beats the Ridge pace ranking.** Ridge and the logistic regression tie on podium
-overlap (20 of 33 places). Prior finish and CatBoost are clearly worse; the other six models
-are not distinguishable from Ridge. Winner prediction (4 to 6 of 11 races) and exact podium
-order (right once, by Ridge) do not separate the models. Among probabilities, Brier scores
-are 0.070 to 0.076. Only the logistic regression has a log loss clearly better than the
-grid-slot rate (-0.014 [-0.025, -0.004]); that is one of 30 intervals with no multiplicity
-correction, so it is suggestive only. Calibration bins are coarse (6 to 44 driver-races).
-Eleven races cannot separate models that differ by a place or two per race, and failing to
-reject is not evidence of equality. The per-race hits, bootstrap table and calibration table
-are in the notebook.
+**No model beats the Ridge pace ranking.** Ridge has the highest podium overlap (34 of 51
+places). Prior finish and CatBoost are clearly worse; the other six models are not
+distinguishable from Ridge. Ridge, grid order, qualifying order and the grid-slot rate name the
+winner in 11 of 17 sessions. Among probabilities, Brier scores are 0.066 to 0.078; the only
+interval against the grid-slot rate that excludes zero is the shallow tree's worse Brier score
+(+0.012 [0.001, 0.023]), one of 30 with no multiplicity correction. Calibration bins are
+uneven (2 to 264 driver-races). On the 4 held-out sprints (12 podium places), Ridge pace, grid
+order, qualifying order, the shallow tree, the simulation and the grid-slot rate each got 10 of
+12; that is too few sprints to rank models on. Seventeen sessions cannot separate models that
+differ by a place or two per session, and failing to reject is not evidence of equality. The
+per-session hits, bootstrap table and calibration table are in the notebook.
 
-Predicted target podiums (top three, with P(podium) where available): Verstappen, Hamilton
-and then Antonelli (Ridge pace, simulation, logistic), Hadjar (grid order, qualifying order,
-grid-slot rate) or Leclerc (shallow tree). Prior finish (Antonelli, Verstappen, Russell) and
-CatBoost (Hamilton, Verstappen, Leclerc) order the top differently. Simulated P(win):
-Verstappen 0.29, Hamilton 0.21, Antonelli 0.17. These
-probabilities come from 11 validation races and model only pace and retirement risk, so
+Predicted Singapore Sprint podiums (top three, with P(podium) where available): Verstappen,
+Russell, Leclerc from Ridge pace, grid order, qualifying order, the logistic regression
+(0.74, 0.72, 0.52), the shallow tree, the simulation (0.60, 0.60, 0.49) and the grid-slot rate.
+Prior finish has Antonelli second; CatBoost has Piastri third. The simulation splits the win
+almost evenly (P(win) Verstappen 0.25, Russell 0.24, Leclerc 0.16). These probabilities come
+from 17 validation sessions, 4 of them sprints, and model only pace and retirement risk, so
 treat them as rough.
 
-The saved Bahrain pace prediction contains 22 entrants. Its top five on pace are
-Max Verstappen, Lewis Hamilton, Kimi Antonelli, Isack Hadjar, and Charles Leclerc.
+The saved Singapore Sprint pace prediction contains 22 entrants. Its top five on pace are
+Max Verstappen, George Russell, Charles Leclerc, Oscar Piastri, and Lando Norris. A snapshot
+is in `results/sprint_prediction_2026-10-10.md`; the earlier Bahrain run is in
+`results/podium_prediction_2026-10-04.md`.
 
 ## Prediction output
 
 The table includes pace rank, driver, team, qualifying position, predicted pace
 ratio, and flags for missing qualifying time, qualifying position, or prior form.
 Ties use driver abbreviation for deterministic ordering. No absolute lap-time
-estimate is shown: another circuit's lap time is not a valid Sepang scale.
+estimate is shown: another circuit's lap time is not a valid Marina Bay scale.
 
 The podium section prints each model's predicted top three for the target, with P(podium)
 where the model has one, and the simulation's P(win), P(podium) and expected position.
@@ -216,7 +272,15 @@ can still differ substantially from the final race classification.
 
 Offline fixtures check date-based historical form, target/future exclusion,
 relocated-venue validation, missing qualifying data and form, absence of validation
-folds, and the restriction to qualifying when loading target features. The finishing-order
+folds, and the restriction to qualifying when loading target features. The venue-history checks
+cover renamed-location aliases, loading only earlier seasons at the requested circuits
+(failures skipped, a target-season entry refused), and per-driver venue means that reject
+history from the target season. The sprint checks
+cover one schedule row per scored session (the target weekend's sprint, qualifying and
+race excluded; ordering by UTC start; wrong venue or date rejected), a sprint target
+loading only `SQ`, a sprint training session loading `SQ` and `S` under a `Sprint` group,
+a weekend's sprint feeding its Grand Prix's `PriorPace` but not the reverse, and the
+sprint-only filter. The finishing-order
 checks cover shifted finishing form and reliability, deterministic rank ties, and ranker
 folds that train only on earlier races. The podium checks cover the logistic and tree folds
 training only on earlier races, the simulation's residuals coming from earlier races only,
@@ -232,7 +296,7 @@ This project is for educational and portfolio purposes.
 
 ## Local live dashboard
 
-A separate React/TypeScript dashboard displays official timing alongside a fixed
+A separate Next.js (React/TypeScript) dashboard displays official timing alongside a fixed
 notebook export. The dashboard never loads race data into the model or refits it.
 Python 3.12 and Node 20.19+ are supported.
 
@@ -247,8 +311,11 @@ npm run dev
 Open <http://127.0.0.1:5173>. This starts both services in one terminal; press
 **Ctrl+C** to stop both. It sets up missing dependencies on first use (requires
 Python 3.12 and Node.js 20.19+ installed). Later starts reuse the installation.
-For live timing, use `npm run dev:live`. No root-level `npm install` is needed;
-these commands use the same launcher as `./start.sh` and `./start.sh --live`.
+The dashboard opens in Historical (replay); use the **Historical / Live** toggle at
+the top right to switch to live timing without restarting (`POST /api/mode`). Each
+switch rebuilds the timing state, so replay position and live buffers start fresh,
+and all open tabs follow it. No root-level `npm install` is needed; `npm run dev`
+uses the same launcher as `./start.sh`.
 Existing `F1_RECORDING` and
 `F1_PREDICTIONS` environment variables still work. Stop any separately running
 backend or frontend first; the launcher reports occupied ports without killing them.
@@ -270,8 +337,8 @@ npm ci
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. Both services bind to localhost. Vite proxies the API
-and WebSocket to the backend. Run one backend process/worker so all browser tabs
+Open <http://127.0.0.1:5173>. Both services bind to localhost. Next.js rewrites
+(`frontend/next.config.ts`) proxy the API and WebSockets to the backend. Run one backend process/worker so all browser tabs
 share one upstream connection and one replay clock. No account or paid access is used.
 
 To receive live timing, restart the backend with:
@@ -280,11 +347,18 @@ To receive live timing, restart the backend with:
 F1_MODE=live ./.venv/bin/uvicorn dashboard.app:app --host 127.0.0.1 --port 8000
 ```
 
-The unauthenticated SignalR Core client follows the JSON subscription used by
+The SignalR Core client follows the JSON subscription used by
 [FastF1's live client](https://github.com/theOehrly/Fast-F1/blob/main/fastf1/livetiming/client.py).
 It subscribes only to SessionInfo, SessionStatus, DriverList, TimingData,
 TimingAppData, TrackStatus, WeatherData, RaceControlMessages, LapCount and Position.z.
-CarData.z and credentials are excluded. Position.z contains actual Cartesian car
+CarData.z is excluded.
+
+F1 streams Position.z only to F1TV Access/Pro subscribers, so live cars on the track
+map need a subscription token. Sign in once with
+`./.venv/bin/python -m fastf1 auth f1tv --authenticate` (FastF1 saves the token), or
+set `F1TV_TOKEN`, then restart the backend. The token is sent as a bearer header and
+is never recorded. Without a valid token, timing still works and the track map explains
+why no cars are shown. Position.z contains actual Cartesian car
 coordinates, not inferred race positions. A rejected position subscription reconnects
 with the original timing topics; missing or malformed coordinates do not stop timing.
 There is no paid fallback. The client reconnects with exponential
@@ -296,16 +370,18 @@ age and upstream timestamp age are separate; both are exposed by the API.
 
 A clean notebook run now ends with `export_predictions(target, TARGET_EVENT,
 target_year)`, writing `dashboard/predictions.json` atomically. It includes the
-session's year, physical venue, scheduled UTC race date, generation time, qualifying
-racing numbers, pace ranks, predicted pace ratios and missing-feature flags.
-Racing numbers come from target qualifying; the target race is never loaded.
+session's year, physical venue, scheduled UTC date of the scored session, session name
+(`Race` or `Sprint`), generation time, qualifying racing numbers, pace ranks, predicted
+pace ratios and missing-feature flags. Racing numbers come from target qualifying (`SQ`
+for a sprint); the target session is never loaded.
 The backend reads this file once at startup. Restart it after a new export, or set
 `F1_PREDICTIONS=/absolute/path/predictions.json`. Missing exports show an explanation.
-Predictions are withheld for non-race sessions or mismatching year, venue, or UTC
-race date; Sepang and Kuala Lumpur are recognized as the same venue. Drivers are
+Predictions are withheld for non-race sessions or mismatching year, venue, UTC date or
+session name. The live feed reports a sprint as `Type: "Race"`, `Name: "Sprint"`, so a sprint
+export is shown only during the sprint, not Sunday's Grand Prix. Exports without a name
+(from before this field) match on year, venue and date only. Sepang and Kuala Lumpur are
+recognized as the same venue. Drivers are
 matched by racing number, never name. Pace rank is distinct from finishing position.
-The notebook outputs were cleared after this edit; existing README model metrics
-were not changed, and no new model results are claimed.
 
 ### Recordings and controls
 

@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "./start.sh",
-    "dev:live": "./start.sh --live"
+    "dev": "./start.sh"
   }
 }
