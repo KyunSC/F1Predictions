@@ -322,7 +322,8 @@ backend or frontend first; the launcher reports occupied ports without killing t
 
 ### Separate services (optional)
 
-From the repository root, start the backend (demo replay is the default):
+From the repository root, start the backend (the archive replay below is the
+default, or the demo if it has not been imported):
 
 ```bash
 ./.venv/bin/pip install -r requirements.txt
@@ -396,8 +397,16 @@ F1_MODE=replay F1_RECORDING=dashboard/recordings/live-smoke.jsonl \
   ./.venv/bin/uvicorn dashboard.app:app --host 127.0.0.1 --port 8000
 ```
 
-The included `demo.jsonl` is a two-minute, six-driver **Demo replay** with synthetic
-values. Pause/resume, restart and 1×/2×/5× speed controls apply to all connected tabs.
+Without `F1_RECORDING`, Historical mode plays
+`dashboard/recordings/archive-2026-bahrain-race.jsonl`: the relocated 2026 Bahrain
+GP at Kuala Lumpur, with real coordinates for all 22 cars. `npm run dev` imports
+it on first start with `dashboard.historical`, reusing `cache/historical/` and
+downloading only what is missing. The file is about 30 MB and gitignored. If the import fails
+(e.g. offline on a fresh clone), the launcher prints a warning and the backend
+falls back to the bundled `demo.jsonl`, a two-minute, six-driver **Demo replay**
+with synthetic values. Reconstructed archive recordings open at lights out (the
+first `SessionStatus` `Started`) with all earlier timing already applied, and
+Restart returns there. The progress bar stays on the recording clock. Pause/resume, restart and 1×/2×/5× speed controls apply to all connected tabs.
 At the end, use Restart to play again. Recordings are selected only at startup;
 the browser cannot select arbitrary filesystem paths.
 
@@ -442,13 +451,21 @@ Y-axis flip preserve aspect ratio and measured coordinates, including OffTrack
 samples. OffTrack does not imply a pit-lane visit. Obvious coordinate-frame
 mismatches show an unavailable reason; coordinates are never rescaled to fit.
 
-Geometry comes only from [MultiViewer](https://api.multiviewer.app), at
+Geometry comes from [MultiViewer](https://api.multiviewer.app), at
 `/api/v1/circuits/{circuit_key}/{year}`. The backend uses a 10-second timeout and
 validates circuit, response year, physical venue, finite outline and rotation.
 Exact-year validated responses are cached in ignored `cache/track-maps/`. Event
 names cannot select a circuit: Kuala Lumpur/Sepang metadata must not select Sakhir.
-A missing or incompatible response shows **Track map unavailable**. No FastF1 race
-session is loaded. Responses to obsolete session requests are discarded.
+When MultiViewer answers **404** for the circuit (Sepang has no outline for any
+year), the backend traces one from this session's own on-track coordinates instead:
+each car's path is thinned to a point every 5 m, a lap is a 2–8 km stretch that
+returns within 30 m of its start, and the median-length lap of at least three cars
+becomes the outline, so a lap through the pit lane is not chosen. It is labelled
+**Traced from {year} car coordinates**. Until three cars have lapped, the map says it
+is tracing and the frontend asks again every 3 seconds. Another circuit or a
+different venue's outline is never substituted, and any other incompatible or
+failed response still shows **Track map unavailable**. No FastF1 race session is
+loaded. Responses to obsolete session requests are discarded.
 
 The independent position buffer retains ten seconds, at most 300 samples per driver,
 plus a final held coordinate for stale/hide handling. Duplicate and late samples
@@ -529,8 +546,10 @@ Verification on October 4, 2026:
   Position.z packets**, with 57,287 decoded samples for each of 22 racing numbers,
   plus IDs 241/242/243. The two local live recordings still contain zero coordinate
   packets. This establishes archive availability, not live subscription delivery.
-  Its exact MultiViewer geometry endpoint `/12/2026` returned 404, so the original
-  race's complete map behavior remains unverified.
+  Its exact MultiViewer geometry endpoint `/12/2026` returned 404 (as do `/12/2025`
+  and `/12/2017`). With the traced fallback, by lights out all 22 cars have closed a
+  pre-race lap of 5.54–5.60 km. The median lap gives a 479-point outline, and the
+  Historical map shows all 22 cars on it.
 - Searching backward through the 2026 and 2025 archive indexes found the newest
   exact-year geometry at **Suzuka, April 6, 2025**, circuit 46. Recent endpoints
   often returned older geometry (for example `/144/2026` returned year 2022);

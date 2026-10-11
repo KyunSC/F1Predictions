@@ -5,6 +5,15 @@ import math
 import zlib
 from collections import Counter
 from datetime import datetime
+import numpy as np
+
+# Outline traced from the cars themselves, for circuits with no published geometry.
+# Coordinates are decimetres.
+TRACE_SPACING = 50            # keep a point every 5 m
+TRACE_POINTS = 4000           # per car: about 20 km, a few laps
+LAP_RANGE = (20000, 80000)    # a plausible lap is 2-8 km
+LAP_CLOSE = 300               # a lap ends within 30 m of where it started
+MIN_TRACE_LAPS = 3            # median of several cars' laps skips pit-lane detours
 
 
 def decode_positions(payload, rejected=None):
@@ -48,6 +57,24 @@ def decode_positions(payload, rejected=None):
     return sorted(result, key=lambda s: s['source_timestamp'])
 
 
+def closed_lap(points):
+    """First stretch of a car's trace that returns to its start, as (length, points)."""
+    if len(points) < 3:
+        return None
+    xy = np.asarray(points, dtype=float)
+    run = np.concatenate([[0.], np.cumsum(np.hypot(*np.diff(xy, axis=0).T))])
+    for i in range(0, len(xy), 10):
+        lo = np.searchsorted(run, run[i] + LAP_RANGE[0])
+        hi = np.searchsorted(run, run[i] + LAP_RANGE[1], side='right')
+        if lo >= len(xy):
+            break
+        close = np.flatnonzero(np.hypot(*(xy[lo:hi] - xy[i]).T) <= LAP_CLOSE)
+        if close.size:
+            end = lo + close[0]
+            return run[end] - run[i], xy[i:end].tolist()
+    return None
+
+
 class Positions:
     def __init__(self):
         self.generation = 0
@@ -66,6 +93,8 @@ class Positions:
         self.rejected = Counter()
         self.gaps = Counter()
         self.max_gap = 0.
+        self.traces = {}
+        self.laps = {}
 
     def apply(self, payload, receipt):
         self.packets += 1
@@ -94,6 +123,8 @@ class Positions:
                     if gap > 5:
                         self.gaps[number] += 1
                 history.append(sample)
+                if sample['status'] == 'OnTrack':
+                    self.extend_trace(number, sample['x'], sample['y'])
                 self.accepted += 1
                 self.latest[number] = sample['source_timestamp']
                 self.samples[number] = [s for s in history if s['presentation_timestamp'] >= receipt - 10][-300:] or history[-1:]
@@ -102,6 +133,19 @@ class Positions:
         except (ValueError, TypeError, KeyError, AttributeError, zlib.error) as exc:
             self.rejected['malformed_packet'] += 1
             self.error = f'Malformed position message: {exc}'
+
+    def extend_trace(self, number, x, y):
+        trace = self.traces.setdefault(number, [])
+        if len(trace) < TRACE_POINTS and (not trace or math.dist(trace[-1], (x, y)) >= TRACE_SPACING):
+            trace.append((x, y))
+
+    def outline(self):
+        """Median-length lap closed by the cars so far, or None until enough have lapped."""
+        for number, trace in self.traces.items():
+            if number not in self.laps or self.laps[number][0] is None and self.laps[number][1] != len(trace):
+                self.laps[number] = (closed_lap(trace), len(trace))
+        laps = sorted((lap for lap, _ in self.laps.values() if lap is not None), key=lambda lap: lap[0])
+        return laps[len(laps) // 2][1] if len(laps) >= MIN_TRACE_LAPS else None
 
     def snapshot(self, clock):
         self.sequence += 1

@@ -15,6 +15,15 @@ ROOT = Path(__file__).resolve().parent
 
 
 MODES = ('live', 'replay')
+ARCHIVE_RECORDING = ROOT / 'recordings/archive-2026-bahrain-race.jsonl'
+DEMO_RECORDING = ROOT / 'recordings/demo.jsonl'
+
+
+def default_recording():
+    """F1_RECORDING if set, else the imported archive race, else the synthetic demo."""
+    if os.getenv('F1_RECORDING'):
+        return Path(os.environ['F1_RECORDING'])
+    return ARCHIVE_RECORDING if ARCHIVE_RECORDING.exists() else DEMO_RECORDING
 
 
 def start_mode(app, mode):
@@ -22,7 +31,7 @@ def start_mode(app, mode):
     app.state.timing = State(app.state.predictions, mode)
     app.state.replay = None
     if mode == 'replay':
-        app.state.replay = Replay(app.state.timing, Path(os.getenv('F1_RECORDING', str(ROOT / 'recordings/demo.jsonl'))))
+        app.state.replay = Replay(app.state.timing, default_recording())
         async def advance():
             previous = time.monotonic()
             while True:

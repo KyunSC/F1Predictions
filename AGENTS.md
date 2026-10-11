@@ -53,7 +53,10 @@ Backend environment variables:
   one launch command; the header's Historical/Live toggle calls `POST /api/mode`, which
   cancels the current task and rebuilds `State` in the other mode.
 - `F1_RECORDING=dashboard/recordings/<file>.jsonl` picks the replay recording (with
-  `F1_MODE=replay`).
+  `F1_MODE=replay`). Unset, it defaults to
+  `dashboard/recordings/archive-2026-bahrain-race.jsonl` (all 22 cars, imported by
+  `dashboard/run.py` on first start and gitignored) if that file exists, else
+  `demo.jsonl` (six synthetic drivers). Tests that start the app pin it to the demo.
 - `F1_PREDICTIONS=/absolute/path/predictions.json` overrides the export location.
 - `F1TV_TOKEN=<subscription token>` authenticates the live connection. Without it the
   backend uses the token saved by `./.venv/bin/python -m fastf1 auth f1tv --authenticate`.
@@ -126,3 +129,10 @@ and date, and `dashboard/state.py:match_predictions` requires both to match.
 - Commit the notebook with outputs from a clean top-to-bottom run, or with no outputs.
   Do not commit partial or stale outputs.
 - Dependencies go in `requirements.txt` with minimum-version pins (`>=`).
+
+## Git
+
+- Never run `git commit` or `git push`. The maintainer commits and pushes. Agents may
+  stage changes, show diffs, and draft commit messages when asked.
+- No AI attribution anywhere: no `Co-Authored-By` trailers, "Generated with" lines, or
+  similar mentions in commit messages, PR descriptions, code, comments, or docs.

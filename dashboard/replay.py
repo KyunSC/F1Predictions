@@ -16,10 +16,14 @@ class Replay:
         if any(e.get('reconstructed') for e in self.events):
             self.label = f'Reconstructed archive replay · {path.name}'
         self.state.synthetic = path.resolve() == (Path(__file__).parent / "recordings/demo.jsonl").resolve()
+        # Archive races carry hours of pre-race; open at lights out with earlier timing applied.
+        self.start = next((e['at'] for e in self.events if e.get('reconstructed') and e['topic'] == 'SessionStatus'
+                           and e['data'].get('Status') == 'Started'), 0.)
         self.position = 0.
         self.index = 0
         self.speed = 1
         self.paused = False
+        self.seek(self.start)
         self.publish()
 
     def publish(self):
@@ -32,6 +36,7 @@ class Replay:
             self.position = 0.
             self.index = 0
             self.paused = False
+            self.seek(self.start)
         elif action == 'pause': self.paused = True
         elif action == 'resume': self.paused = False
         elif action == 'speed' and speed in (1, 2, 5): self.speed = speed
@@ -40,9 +45,13 @@ class Replay:
 
     def advance(self, elapsed):
         if not self.paused:
-            self.position = min(self.events[-1]['at'], self.position + elapsed * self.speed)
-            while self.index < len(self.events) and self.events[self.index]['at'] <= self.position:
-                e = self.events[self.index]
-                self.state.apply(e['topic'], e['data'], e.get('timestamp'), now=e['at'])
-                self.index += 1
+            self.seek(min(self.events[-1]['at'], self.position + elapsed * self.speed))
         self.publish()
+
+    def seek(self, position):
+        """Move forward to `position`, applying every event up to it in order."""
+        self.position = position
+        while self.index < len(self.events) and self.events[self.index]['at'] <= self.position:
+            e = self.events[self.index]
+            self.state.apply(e['topic'], e['data'], e.get('timestamp'), now=e['at'])
+            self.index += 1

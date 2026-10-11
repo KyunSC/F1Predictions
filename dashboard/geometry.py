@@ -1,4 +1,8 @@
-"""Exact circuit/year MultiViewer geometry, fetched without FastF1 sessions."""
+"""Exact circuit/year MultiViewer geometry, fetched without FastF1 sessions.
+
+When MultiViewer has no outline for the circuit (404, e.g. Sepang), the outline is
+traced from this session's own car coordinates instead; another circuit is never used.
+"""
 import asyncio
 import json
 import math
@@ -62,6 +66,7 @@ class Geometry:
         self.key = None
         self.task = None
         self.value = {}
+        self.unpublished = set()  # circuit/year ids MultiViewer answered 404 for
 
     def request(self, state):
         key = state.map_id()
@@ -70,12 +75,18 @@ class Geometry:
                 self.task.cancel()
             self.key = key
             self.value = dict(session_identity=key, geometry_id=None, available=False, reason='Loading circuit geometry')
-            self.task = asyncio.create_task(self.load(key, dict(state.topics.get('SessionInfo', {})), state.synthetic))
+            self.task = asyncio.create_task(self.load(key, dict(state.topics.get('SessionInfo', {})), state.synthetic,
+                                                      state.positions.outline))
+        elif self.value.get('pending') and self.task.done():
+            # Waiting for enough cars to complete a lap; try tracing again.
+            self.task = asyncio.create_task(self.load(key, dict(state.topics.get('SessionInfo', {})), state.synthetic,
+                                                      state.positions.outline))
         return dict(self.value)
 
-    async def load(self, identity, info, synthetic):
+    async def load(self, identity, info, synthetic, trace=lambda: None):
         geometry_id = None
         provenance = None
+        traced = False
         try:
             if synthetic:
                 data = json.loads((Path(__file__).parent / 'demo-outline.json').read_text())
@@ -89,15 +100,35 @@ class Geometry:
                     data = json.loads(path.read_text())
                     validate_provider(data, circuit, year, info)
                 except (OSError, ValueError, KeyError, TypeError):
-                    async with httpx.AsyncClient(timeout=10) as client:
-                        response = await client.get(provenance)
-                        response.raise_for_status()
-                        data = response.json()
-                    validate_provider(data, circuit, year, info)
-                    self.cache.mkdir(parents=True, exist_ok=True)
-                    path.write_text(json.dumps(data))
+                    data = None
+                    if geometry_id not in self.unpublished:
+                        async with httpx.AsyncClient(timeout=10) as client:
+                            response = await client.get(provenance)
+                        if response.status_code == 404:
+                            self.unpublished.add(geometry_id)
+                        else:
+                            response.raise_for_status()
+                            data = response.json()
+                            validate_provider(data, circuit, year, info)
+                            self.cache.mkdir(parents=True, exist_ok=True)
+                            path.write_text(json.dumps(data))
+                    if data is None:
+                        outline = trace()
+                        provenance = f'Traced from this session\'s Position.z coordinates (MultiViewer has no outline for {geometry_id})'
+                        if outline is None:
+                            value = dict(session_identity=identity, geometry_id=geometry_id, available=False, pending=True,
+                                         reason='No published outline for this circuit; tracing one once cars complete a lap',
+                                         outline=[], bounds=None, rotation=None, coordinate_system='F1 Cartesian decimetres',
+                                         synthetic=False, attribution='Traced from car coordinates', provenance=provenance)
+                            if self.key == identity:
+                                self.value = value
+                            return
+                        data = dict(x=[p[0] for p in outline], y=[p[1] for p in outline], rotation=0, year=year)
+                        traced = True
+            attribution = ('Synthetic demo' if synthetic else
+                           f'Traced from {data["year"]} car coordinates' if traced else f"MultiViewer · {data['year']} layout")
             value = dict(validate(data), session_identity=identity, geometry_id=geometry_id, available=True,
-                         reason=None, synthetic=synthetic, attribution='Synthetic demo' if synthetic else f"MultiViewer · {data['year']} layout", provenance=provenance)
+                         reason=None, synthetic=synthetic, attribution=attribution, provenance=provenance)
         except Exception as exc:
             value = dict(session_identity=identity, geometry_id=geometry_id, available=False, reason=str(exc),
                          outline=[], bounds=None, rotation=None, coordinate_system='F1 Cartesian decimetres',

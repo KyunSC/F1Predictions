@@ -72,3 +72,17 @@ it('switches between historical and live dashboards from the header',async()=>{
  fireEvent.click(live)
  await waitFor(()=>expect(fetch).toHaveBeenCalledWith('/api/mode',expect.objectContaining({method:'POST',body:JSON.stringify({mode:'live'})})))
 })
+it('retries a pending traced outline until it is ready',async()=>{
+ vi.useFakeTimers({shouldAdvanceTime:true})
+ const pending={session_identity:'demo',available:false,pending:true,reason:'No published outline for this circuit; tracing one once cars complete a lap',outline:[]}
+ const traced={session_identity:'demo',available:true,outline:[[0,0],[2,1],[0,2]],rotation:0,synthetic:false,attribution:'Traced from 2026 car coordinates'}
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce({ok:true,json:async()=>pending}).mockResolvedValue({ok:true,json:async()=>traced}))
+ render(<App/>);const positions=Socket.sockets.find(s=>s.url.endsWith('/ws/positions'))!
+ act(()=>positions.emit({...stream,synthetic:false}))
+ expect(await screen.findByText(pending.reason)).toBeTruthy()
+ await act(async()=>{vi.advanceTimersByTime(3000)})
+ await screen.findByRole('button',{name:'Select 44'})
+ expect(screen.getByText('Traced from 2026 car coordinates')).toBeTruthy()
+ expect(fetch).toHaveBeenCalledTimes(2)
+ vi.useRealTimers()
+})

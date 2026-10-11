@@ -45,6 +45,14 @@ def main():
         next_bin = ROOT / 'frontend/node_modules/next/dist/bin/next'
         if not next_bin.exists():
             subprocess.run(['npm', 'ci'], cwd=ROOT / 'frontend', check=True)
+        archive = ROOT / 'dashboard/recordings/archive-2026-bahrain-race.jsonl'
+        if not archive.exists():
+            print('Importing the 2026 Bahrain GP (Kuala Lumpur) archive for Historical replay...', flush=True)
+            imported = subprocess.run([str(python), '-m', 'dashboard.historical', '--year', '2026', '--event',
+                                       'Bahrain Grand Prix', '--session', 'Race', '--output', str(archive)],
+                                      cwd=ROOT, stdout=subprocess.DEVNULL)
+            if imported.returncode:
+                print('Warning: archive import failed; Historical mode will use the six-driver demo.', flush=True)
         env = os.environ.copy()
         env.setdefault('NEXT_TELEMETRY_DISABLED', '1')
         print('\nStarting F1 dashboard. Switch Historical/Live from the header; Ctrl+C stops both services.\n',

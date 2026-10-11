@@ -9,13 +9,15 @@ from unittest.mock import Mock
 from unittest.mock import patch
 import pandas as pd
 from fastapi.testclient import TestClient
-from dashboard.app import app
+from dashboard import app as app_module
+from dashboard.app import app, default_recording
 from dashboard.state import State, merge, match_predictions
 from dashboard.replay import Replay
 from dashboard.live import connect, decode_frame, feed_events, load_token, run_live, TOPICS
 from test_prediction import NS
 
 INFO = dict(Key=1, Type='Race', Name='Race', StartDate='2026-10-04T15:00:00', Meeting={'Location':'Kuala Lumpur'})
+DEMO = str(Path(__file__).resolve().parents[1] / 'dashboard/recordings/demo.jsonl')
 EXPORT = dict(session=dict(year=2026,venue='Sepang',race_date='2026-10-04'), drivers=[dict(racing_number='44',pace_rank=2)])
 
 
@@ -71,6 +73,36 @@ class DashboardTests(unittest.TestCase):
             replay.control('restart'); self.assertEqual(state.snapshot()['laps']['CurrentLap'],1)
             self.assertFalse(state.replay['ended'])
             with self.assertRaises(ValueError): replay.control('speed',3)
+
+    def test_archive_replay_opens_at_lights_out(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'archive.jsonl'
+            events=[(0,'SessionInfo',INFO),(5,'SessionStatus',{'Status':'Inactive'}),(10,'LapCount',{'CurrentLap':1,'TotalLaps':56}),
+                    (100,'SessionStatus',{'Status':'Started'}),(110,'LapCount',{'CurrentLap':2})]
+            path.write_text('\n'.join(json.dumps(dict(at=t,topic=topic,data=data,reconstructed=True)) for t,topic,data in events))
+            state=State(); replay=Replay(state,path)
+            self.assertEqual((replay.start,replay.position,state.replay['position']),(100,100,100))
+            self.assertEqual(state.replay['duration'],110)
+            self.assertEqual(state.snapshot()['laps']['TotalLaps'],56)
+            self.assertEqual(state.topics['SessionStatus']['Status'],'Started')
+            replay.advance(10); self.assertEqual(state.snapshot()['laps']['CurrentLap'],2)
+            replay.control('restart')
+            self.assertEqual(replay.position,100)
+            self.assertEqual(state.snapshot()['laps']['CurrentLap'],1)
+            self.assertEqual(state.topics['SessionInfo']['Key'],1)
+        state=State(); replay=Replay(state,Path(DEMO))
+        self.assertEqual((replay.start,replay.position),(0,0))
+
+    def test_default_recording(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            archive,demo=Path(tmp)/'archive.jsonl',Path(tmp)/'demo.jsonl'
+            with patch.object(app_module,'ARCHIVE_RECORDING',archive),patch.object(app_module,'DEMO_RECORDING',demo),\
+                    patch.dict('os.environ',{},clear=True):
+                self.assertEqual(default_recording(),demo)
+                archive.write_text('{}')
+                self.assertEqual(default_recording(),archive)
+                with patch.dict('os.environ',{'F1_RECORDING':'/elsewhere/x.jsonl'}):
+                    self.assertEqual(default_recording(),Path('/elsewhere/x.jsonl'))
 
     def test_protocol_and_reconnect_backoff(self):
         self.assertNotIn('CarData.z',TOPICS); self.assertIn('Position.z',TOPICS)
@@ -170,7 +202,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(match_predictions(legacy,dict(INFO,Name='Anything'))[0],EXPORT['drivers'])
 
     def test_http_websocket_and_invalid_control(self):
-        with patch.dict('os.environ',{'F1_MODE':'replay'}), TestClient(app) as client:
+        with patch.dict('os.environ',{'F1_MODE':'replay','F1_RECORDING':DEMO}), TestClient(app) as client:
             self.assertEqual(client.get('/api/state').status_code,200)
             self.assertEqual(client.post('/api/replay/control',json={'action':'pause'}).status_code,200)
             self.assertTrue(client.get('/api/state').json()['replay']['paused'])
@@ -181,7 +213,7 @@ class DashboardTests(unittest.TestCase):
     def test_mode_switch_rebuilds_state(self):
         async def idle_live(state, path):
             await asyncio.Event().wait()
-        with patch.dict('os.environ',{'F1_MODE':'replay'}), patch('dashboard.app.run_live',idle_live), TestClient(app) as client:
+        with patch.dict('os.environ',{'F1_MODE':'replay','F1_RECORDING':DEMO}), patch('dashboard.app.run_live',idle_live), TestClient(app) as client:
             replay_state=app.state.timing
             self.assertEqual(client.post('/api/mode',json={'mode':'live'}).json()['connection']['mode'],'live')
             self.assertIsNot(app.state.timing,replay_state)

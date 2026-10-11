@@ -1,18 +1,22 @@
 import asyncio
 import base64
 import json
+import math
 import tempfile
 import unittest
 import zlib
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 from dashboard.app import app
 from dashboard.geometry import Geometry, resolve, validate, validate_provider
-from dashboard.positions import decode_positions
+from dashboard.positions import Positions, closed_lap, decode_positions
 from dashboard.state import State
 from dashboard.replay import Replay
+
+
+DEMO = str(Path(__file__).resolve().parents[1] / 'dashboard/recordings/demo.jsonl')
 
 
 def packet(times=(0, .2), number='44'):
@@ -119,6 +123,48 @@ class PositionTests(unittest.TestCase):
         for bad in [dict(layout,year=2027),dict(layout,year='2023'),dict(layout,year=2023,circuitKey=46),dict(layout,year=2023,location='Suzuka')]:
             with self.assertRaises(ValueError):validate_provider(bad,61,2026,info)
 
+    def test_traced_outline_needs_several_closed_laps(self):
+        def lap(radius, cx=0):
+            # ~6.3 km circle in decimetres, sampled every ~10 m, driven 1.5 times
+            return [(cx+radius*math.cos(a/100), radius*math.sin(a/100)) for a in range(0, 942, 1)]
+        self.assertIsNone(closed_lap(lap(10000)[:300]))  # half a lap never closes
+        length,points=closed_lap(lap(10000));self.assertAlmostEqual(length,2*math.pi*10000,delta=400)  # may close up to 30 m early
+        positions=Positions()
+        for number,radius in [('1',10000),('2',10400)]:
+            for x,y in lap(radius):positions.extend_trace(number,x,y)
+        self.assertIsNone(positions.outline())  # two cars are not enough to rule out a pit detour
+        for x,y in lap(9600):positions.extend_trace('3',x,y)
+        outline=positions.outline();self.assertAlmostEqual(math.dist(outline[0],(0,0)),10000,delta=1)
+        positions.apply(packet((0,),'4'),0);positions.reset();self.assertEqual((positions.traces,positions.laps),({},{}))
+
+    def test_traced_outline_only_when_provider_has_none(self):
+        info={'StartDate':'2026-10-04T15:00:00','Meeting':{'Location':'Kuala Lumpur','Circuit':{'Key':12,'ShortName':'Sepang'}}}
+        square=[(0,0),(1000,0),(1000,1000),(0,1000)]
+        def client(status):
+            http=AsyncMock();response=Mock(status_code=status)
+            response.raise_for_status.side_effect=RuntimeError(f'HTTP {status}')
+            http.get.return_value=response;context=AsyncMock();context.__aenter__.return_value=http
+            return context,http
+        async def run():
+            with tempfile.TemporaryDirectory() as tmp:
+                g=Geometry(Path(tmp));g.key='s'
+                context,http=client(404)
+                with patch('dashboard.geometry.httpx.AsyncClient',return_value=context):
+                    await g.load('s',info,False,lambda:None)
+                    self.assertTrue(g.value['pending']);self.assertFalse(g.value['available'])
+                    await g.load('s',info,False,lambda:square)
+                self.assertEqual(http.get.await_count,1)  # a 404 is remembered, not refetched
+                self.assertTrue(g.value['available']);self.assertNotIn('pending',g.value)
+                self.assertEqual(g.value['outline'],[list(p) for p in square])
+                self.assertEqual(g.value['attribution'],'Traced from 2026 car coordinates')
+                g=Geometry(Path(tmp));g.key='s';context,_=client(500)
+                with patch('dashboard.geometry.httpx.AsyncClient',return_value=context):
+                    await g.load('s',info,False,lambda:square)
+                self.assertFalse(g.value['available']);self.assertIn('500',g.value['reason'])
+                sakhir={**info,'Meeting':{**info['Meeting'],'Circuit':{'Key':63,'ShortName':'Sakhir'}}}
+                await g.load('s',sakhir,False,lambda:square);self.assertFalse(g.value['available'])
+        asyncio.run(run())
+
     def test_geometry_cache_failure_and_late_result(self):
         async def run():
             with tempfile.TemporaryDirectory() as tmp:
@@ -133,7 +179,7 @@ class PositionTests(unittest.TestCase):
         asyncio.run(run())
 
     def test_websocket_contracts_and_origin(self):
-        with patch.dict('os.environ',{'F1_MODE':'replay'}),TestClient(app) as client:
+        with patch.dict('os.environ',{'F1_MODE':'replay','F1_RECORDING':DEMO}),TestClient(app) as client:
             client.post('/api/replay/control',json={'action':'pause'})
             geometry=client.get('/api/track-map').json();self.assertTrue(geometry['synthetic'])
             with client.websocket_connect('/ws/positions') as ws:

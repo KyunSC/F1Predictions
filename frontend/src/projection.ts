@@ -73,18 +73,34 @@ export function projectedMarker(samples:Projected[],time:number,track:Circuit,re
  return {...previous,x,y,distance,age,stale:age>5}
 }
 export type Label={number:string;x:number;y:number;width:number;height:number}
-export function placeLabels(labels:Label[],bounds:{left:number;right:number;top:number;bottom:number},obstacles:Label[]=[]){
+// Offset of a placed label from its anchor, in label heights so it survives resizes.
+export type LabelOffset={dx:number;dy:number}
+export function labelOffsets(anchors:Label[],placed:Label[]){
+ return new Map(placed.map(p=>{const a=anchors.find(a=>a.number===p.number)!;return [p.number,{dx:(p.x-a.x)/a.height,dy:(p.y-a.y)/a.height}] as const}))
+}
+export function placeLabels(labels:Label[],bounds:{left:number;right:number;top:number;bottom:number},obstacles:Label[]=[],previous?:Map<string,LabelOffset>){
  const placed:Label[]=[...obstacles]
  const sorted=[...labels].sort((a,b)=>Number(a.number)-Number(b.number))
+ const clamp=(label:Label,x:number,y:number)=>({...label,x:Math.max(bounds.left,Math.min(bounds.right-label.width,x)),y:Math.max(bounds.top,Math.min(bounds.bottom-label.height,y))})
  const result=sorted.map(label=>{
   let best={...label},bestScore=Infinity
   const step=label.height*1.2
+  // Labels are re-placed every frame as cars move. Without hysteresis a tiny
+  // move flips a label to another row or side, which reads as flicker. Keep the
+  // previous slot unless it now overlaps or a much closer one has opened up,
+  // and when it must move, prefer slots near where it was.
+  const collisions=(candidate:Label)=>placed.filter(p=>candidate.x<p.x+p.width+step*.15&&candidate.x+candidate.width+step*.15>p.x&&candidate.y<p.y+p.height+step*.15&&candidate.y+candidate.height+step*.15>p.y).length
+  const last=previous?.get(label.number),slot=last&&clamp(label,label.x+last.dx*label.height,label.y+last.dy*label.height)
+  const blocked=slot&&collisions(slot)?slot:undefined
+  const consider=(candidate:Label,bonus=0)=>{
+   const score=collisions(candidate)*1e12+Math.hypot(candidate.x-label.x,candidate.y-label.y)+(blocked?Math.hypot(candidate.x-blocked.x,candidate.y-blocked.y):0)-bonus
+   if(score<bestScore){best=candidate;bestScore=score}
+  }
+  if(slot&&!blocked)consider(slot,step*2)
+  if(blocked)for(let k=1;k<=8;k++)for(const sign of [1,-1])consider(clamp(label,blocked.x,blocked.y+sign*k*step*.25))
   for(let row=0;row<60;row++)for(const side of [1,-1,2,-2,3,-3]){
    const dy=(row===0?0:Math.ceil(row/2)*(row%2?1:-1))*step
-   const candidate={...label,x:Math.max(bounds.left,Math.min(bounds.right-label.width,label.x+Math.sign(side)*label.height+(side>0?side-1:side)*label.width)),y:Math.max(bounds.top,Math.min(bounds.bottom-label.height,label.y+dy))}
-   const overlaps=placed.filter(p=>candidate.x<p.x+p.width+step*.15&&candidate.x+candidate.width+step*.15>p.x&&candidate.y<p.y+p.height+step*.15&&candidate.y+candidate.height+step*.15>p.y).length
-   const score=overlaps*1e12+Math.hypot(candidate.x-label.x,candidate.y-label.y)
-   if(score<bestScore){best=candidate;bestScore=score}
+   consider(clamp(label,label.x+Math.sign(side)*label.height+(side>0?side-1:side)*label.width,label.y+dy))
   }
   placed.push(best);return best
  })
