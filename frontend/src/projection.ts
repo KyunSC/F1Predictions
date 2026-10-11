@@ -78,13 +78,16 @@ export type LabelOffset={dx:number;dy:number}
 export function labelOffsets(anchors:Label[],placed:Label[]){
  return new Map(placed.map(p=>{const a=anchors.find(a=>a.number===p.number)!;return [p.number,{dx:(p.x-a.x)/a.height,dy:(p.y-a.y)/a.height}] as const}))
 }
-export function placeLabels(labels:Label[],bounds:{left:number;right:number;top:number;bottom:number},obstacles:Label[]=[],previous?:Map<string,LabelOffset>){
+// Labels are anchored at their marker. `prefer` is the label's ideal top-left
+// corner relative to that anchor, in label heights; other slots mirror it to
+// the left and step it up or down in rows when it is taken.
+export function placeLabels(labels:Label[],bounds:{left:number;right:number;top:number;bottom:number},obstacles:Label[]=[],previous?:Map<string,LabelOffset>,prefer:LabelOffset={dx:1,dy:0}){
  const placed:Label[]=[...obstacles]
  const sorted=[...labels].sort((a,b)=>Number(a.number)-Number(b.number))
  const clamp=(label:Label,x:number,y:number)=>({...label,x:Math.max(bounds.left,Math.min(bounds.right-label.width,x)),y:Math.max(bounds.top,Math.min(bounds.bottom-label.height,y))})
  const result=sorted.map(label=>{
   let best={...label},bestScore=Infinity
-  const step=label.height*1.2
+  const step=label.height*1.2,px=prefer.dx*label.height,py=prefer.dy*label.height
   // Labels are re-placed every frame as cars move. Without hysteresis a tiny
   // move flips a label to another row or side, which reads as flicker. Keep the
   // previous slot unless it now overlaps or a much closer one has opened up,
@@ -93,14 +96,14 @@ export function placeLabels(labels:Label[],bounds:{left:number;right:number;top:
   const last=previous?.get(label.number),slot=last&&clamp(label,label.x+last.dx*label.height,label.y+last.dy*label.height)
   const blocked=slot&&collisions(slot)?slot:undefined
   const consider=(candidate:Label,bonus=0)=>{
-   const score=collisions(candidate)*1e12+Math.hypot(candidate.x-label.x,candidate.y-label.y)+(blocked?Math.hypot(candidate.x-blocked.x,candidate.y-blocked.y):0)-bonus
+   const score=collisions(candidate)*1e12+Math.hypot(candidate.x-label.x-px,candidate.y-label.y-py)+(blocked?Math.hypot(candidate.x-blocked.x,candidate.y-blocked.y):0)-bonus
    if(score<bestScore){best=candidate;bestScore=score}
   }
   if(slot&&!blocked)consider(slot,step*2)
   if(blocked)for(let k=1;k<=8;k++)for(const sign of [1,-1])consider(clamp(label,blocked.x,blocked.y+sign*k*step*.25))
   for(let row=0;row<60;row++)for(const side of [1,-1,2,-2,3,-3]){
    const dy=(row===0?0:Math.ceil(row/2)*(row%2?1:-1))*step
-   consider(clamp(label,label.x+Math.sign(side)*label.height+(side>0?side-1:side)*label.width,label.y+dy))
+   consider(clamp(label,side>0?label.x+px+(side-1)*label.width:label.x-px+side*label.width,label.y+py+dy))
   }
   placed.push(best);return best
  })
