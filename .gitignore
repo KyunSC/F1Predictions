@@ -58,3 +58,6 @@ dashboard/recordings/live-*.jsonl
 frontend/*.tsbuildinfo
 frontend/.next/
 frontend/next-env.d.ts
+
+# Agent instructions
+AGENTS.md
