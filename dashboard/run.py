@@ -1,5 +1,6 @@
 """Start and supervise both localhost dashboard services with ./start.sh."""
 import argparse
+import json
 import os
 from pathlib import Path
 import shutil
@@ -45,16 +46,20 @@ def main():
         next_bin = ROOT / 'frontend/node_modules/next/dist/bin/next'
         if not next_bin.exists():
             subprocess.run(['npm', 'ci'], cwd=ROOT / 'frontend', check=True)
-        archive = ROOT / 'dashboard/recordings/archive-2026-bahrain-race.jsonl'
-        if not archive.exists():
-            print('Importing the 2026 Bahrain GP (Kuala Lumpur) archive for Historical replay...', flush=True)
-            imported = subprocess.run([str(python), '-m', 'dashboard.historical', '--year', '2026', '--event',
-                                       'Bahrain Grand Prix', '--session', 'Race', '--output', str(archive)],
-                                      cwd=ROOT, stdout=subprocess.DEVNULL)
-            if imported.returncode:
-                print('Warning: archive import failed; Historical mode will use the six-driver demo.', flush=True)
         env = os.environ.copy()
         env.setdefault('NEXT_TELEMETRY_DISABLED', '1')
+        if not env.get('F1_RECORDING'):
+            # Open Historical on the most recent Grand Prix; the importer reports a first download.
+            print('Finding the most recent race for Historical replay...', flush=True)
+            latest = subprocess.run([str(python), '-m', 'dashboard.historical', '--latest-race'],
+                                    cwd=ROOT, stdout=subprocess.PIPE, text=True)
+            try:
+                env['F1_RECORDING'] = json.loads(latest.stdout)['output']
+            except (ValueError, KeyError):
+                pass
+            if latest.returncode or not env.get('F1_RECORDING'):
+                env.pop('F1_RECORDING', None)
+                print('Warning: archive import failed; Historical mode will use the six-driver demo.', flush=True)
         print('\nStarting F1 dashboard. Switch Historical/Live from the header; Ctrl+C stops both services.\n',
               flush=True)
         commands = [

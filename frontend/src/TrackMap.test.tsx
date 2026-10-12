@@ -63,6 +63,33 @@ it('renders measured locations independently of official overtake and lapped sta
  expect(car.getAttribute('transform')).toBe(location)
  expect(screen.getByText(/Lewis Hamilton · P1/)).toBeTruthy()
 })
+it('shows the if-pitted-now rejoin and pit-loss basis in the timing tower',async()=>{
+ render(<App/>);const positions=Socket.sockets.find(s=>s.url.endsWith('/ws/positions'))!
+ const drivers=[{number:'4',code:'NOR',position:'1',gap:'LAP 20'},{number:'44',name:'Lewis Hamilton',code:'HAM',position:'2',gap:'+3.000',pit_rejoin:{position:7,ahead:'4',gap_ahead:1.2,behind:null,gap_behind:null,positions_lost:5}},{number:'16',code:'LEC',position:'3',in_pit:true,pit_rejoin:null}]
+ const snapshot={session_identity:'demo',generation:1,presentation_timestamp:0,session:{},drivers,predictions:[],messages:[],track:{},weather:{},laps:{},connection:{},replay,pit_loss:{seconds:27.4,basis:'circuit',races:3,label:'Marina Bay'}}
+ act(()=>positions.emit({...stream,current:snapshot,timing_history:[snapshot]}))
+ const cell=await screen.findByText('P7 ▼5')
+ expect(cell.closest('tr')?.getAttribute('data-driver-number')).toBe('44')
+ expect(cell.getAttribute('title')).toBe('Rejoins P7, 1.2 s behind NOR')
+ expect(screen.getByText('IN PIT').closest('tr')?.getAttribute('data-driver-number')).toBe('16')
+ expect(screen.getByText('Pit loss 27.4 s · Marina Bay median (3 races)')).toBeTruthy()
+})
+it('shows where a clicked driver would rejoin if they pitted now',async()=>{
+ render(<App/>);const positions=Socket.sockets.find(s=>s.url.endsWith('/ws/positions'))!
+ const moving={...stream,samples:{'44':[{x:0,y:0,z:0,source_timestamp:0,presentation_timestamp:0,status:'OnTrack'},{x:1,y:.5,z:0,source_timestamp:1,presentation_timestamp:1,status:'OnTrack'}],'4':[{x:0,y:2,z:0,source_timestamp:1,presentation_timestamp:1,status:'OnTrack'}]}}
+ const drivers=[{number:'4',code:'NOR',name:'Lando Norris',position:'1',gap:'LAP 20'},{number:'44',name:'Lewis Hamilton',code:'HAM',position:'2',gap:'+3.000',last_lap:'1:30.000',pit_rejoin:{position:3,ahead:'4',gap_ahead:19,behind:null,gap_behind:null,positions_lost:1}}]
+ const snapshot={session_identity:'demo',generation:1,presentation_timestamp:0,session:{},drivers,predictions:[],messages:[],track:{},weather:{},laps:{},connection:{},replay,pit_loss:{seconds:22,basis:'circuit',races:3,label:'Marina Bay'}}
+ act(()=>positions.emit({...moving,current:snapshot,timing_history:[snapshot]}))
+ await screen.findByRole('button',{name:'Select Lewis Hamilton'})
+ expect(screen.queryByText(/If pitted now/)).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'HAM'}))
+ expect(screen.getByText(/If pitted now: P3 ▼1 · 19.0 s behind NOR/)).toBeTruthy()
+ expect(screen.getByRole('img',{name:'HAM rejoin point if pitted now'})).toBeTruthy()
+ expect(document.querySelector('tr[data-driver-number="4"]')?.className).toBe('rejoin-neighbour')
+ fireEvent.click(screen.getByRole('button',{name:'NOR'}))
+ expect(screen.queryByRole('img',{name:/rejoin point/})).toBeNull()
+ expect(screen.getByText('If pitted now: no projection')).toBeTruthy()
+})
 it('switches between historical and live dashboards from the header',async()=>{
  render(<App/>);const positions=Socket.sockets.find(s=>s.url.endsWith('/ws/positions'))!
  const snapshot={session_identity:'demo',generation:1,presentation_timestamp:0,session:{},drivers:[],predictions:[],messages:[],track:{},weather:{},laps:{},connection:{mode:'replay'},replay}

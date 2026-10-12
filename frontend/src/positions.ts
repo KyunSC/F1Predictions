@@ -46,6 +46,6 @@ export function usePresentation(){
  const time=stream&&clock.identity!==stream.session_identity?stream.presentation_clock-1:clock.time
  const current=stream?.current
  const frame=stream?timingAt(stream,time):undefined
- const data=current?{...current,...frame,connection:current.connection,replay:current.replay,drivers:frame?.drivers||[],messages:frame?.messages||[],laps:frame?.laps||{},track:frame?.track||{},weather:frame?.weather||{}}:null
+ const data=current?{...current,...frame,connection:current.connection,replay:current.replay,archive:current.archive,drivers:frame?.drivers||[],messages:frame?.messages||[],laps:frame?.laps||{},track:frame?.track||{},weather:frame?.weather||{}}:null
  return {stream,online,time,data}
 }

@@ -1,8 +1,12 @@
 """Offline dashboard protocol, state, replay, API and notebook export tests."""
 import asyncio
 import json
+import shutil
+import subprocess
 import tempfile
+import time
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -15,6 +19,7 @@ from dashboard.state import State, merge, match_predictions
 from dashboard.replay import Replay
 from dashboard.live import connect, decode_frame, feed_events, load_token, run_live, TOPICS
 from test_prediction import NS
+from test_historical import DURING_RACE_COOLDOWN, INDEX_2026, index_fetch
 
 INFO = dict(Key=1, Type='Race', Name='Race', StartDate='2026-10-04T15:00:00', Meeting={'Location':'Kuala Lumpur'})
 DEMO = str(Path(__file__).resolve().parents[1] / 'dashboard/recordings/demo.jsonl')
@@ -60,6 +65,56 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(drivers['44']['prediction']['pace_rank'],2)
         self.assertIsNone(drivers['1']['prediction'])
 
+    def test_pit_rejoin_projection_in_snapshot(self):
+        info=dict(INFO,Meeting={'Location':'Kuala Lumpur','Circuit':{'Key':12}})
+        table=dict(races=[dict(circuit_key=12,location='Sepang',date='2017-10-01',losses={'green':{'median_loss':22.0},'sc':{'median_loss':12.0}}),
+                          dict(circuit_key=12,location='Sepang',date='2026-10-04',losses={'green':{'median_loss':99.0}})])
+        lines={'1':{'Position':'1','GapToLeader':'LAP 12'},'44':{'Position':'2','GapToLeader':'+5.000'},
+               '16':{'Position':'3','GapToLeader':'+20.000','NumberOfPitStops':1},'4':{'Position':'4','GapToLeader':'+30.000'}}
+        state=State(pit_loss=table); state.apply('SessionInfo',info)
+        state.apply('DriverList',{n:{'Tla':n} for n in lines}); state.apply('TimingData',{'Lines':lines})
+        snap=state.snapshot(); drivers={d['number']:d for d in snap['drivers']}
+        self.assertEqual(snap['pit_loss'],dict(seconds=22.0,basis='circuit',condition='green',races=1,label='Kuala Lumpur'))
+        self.assertEqual(drivers['44']['pit_rejoin'],dict(position=3,ahead='16',gap_ahead=7.0,behind='4',gap_behind=3.0,positions_lost=1))
+        self.assertEqual(drivers['16']['pit_stops'],1)
+        state.apply('TrackStatus',{'Status':'4','Message':'SCDeployed'})
+        snap=state.snapshot(); drivers={d['number']:d for d in snap['drivers']}
+        self.assertEqual((snap['pit_loss']['condition'],snap['pit_loss']['seconds']),('sc',12.0))
+        self.assertEqual(drivers['44']['pit_rejoin']['position'],2)
+        state.apply('TrackStatus',{'Status':'1','Message':'AllClear'})
+        state.apply('TimingData',{'Lines':{'44':{'InPit':True}}})
+        drivers={d['number']:d for d in state.snapshot()['drivers']}
+        self.assertTrue(drivers['44']['in_pit']); self.assertIsNone(drivers['44']['pit_rejoin'])
+        state.apply('SessionInfo',{'Type':'Qualifying','Name':'Qualifying'})
+        snap=state.snapshot()
+        self.assertTrue(all(d['pit_rejoin'] is None for d in snap['drivers']))
+        self.assertIn('only in races',snap['pit_loss']['reason'])
+        self.assertEqual(State().snapshot()['pit_loss']['reason'],'No pit-loss table loaded.')
+
+    def test_championship_projection_in_snapshot(self):
+        state=State(); state.apply('SessionInfo',INFO)
+        self.assertEqual(state.snapshot()['standings'],dict(rows=[],reason='Awaiting championship data from the timing feed.'))
+        state.apply('DriverList',{'12':{'Tla':'ANT','TeamName':'Mercedes','TeamColour':'00D7B6'},'63':{'Tla':'RUS'}})
+        state.apply('ChampionshipPrediction',{'Drivers':{
+            '12':{'RacingNumber':'12','CurrentPosition':1,'PredictedPosition':1,'CurrentPoints':302.0,'PredictedPoints':302.0},
+            '63':{'RacingNumber':'63','CurrentPosition':2,'PredictedPosition':2,'CurrentPoints':236.0,'PredictedPoints':236.0},
+            '7':{'RacingNumber':'7','CurrentPosition':3,'PredictedPosition':3,'CurrentPoints':230.0,'PredictedPoints':230.0}},'Teams':{}})
+        # Sparse patches as the race runs: 7 (not entered in this session) takes 3rd, RUS drops behind.
+        state.apply('ChampionshipPrediction',{'Drivers':{'63':{'PredictedPosition':3,'PredictedPoints':244.0},
+                                                          '7':{'PredictedPosition':2,'PredictedPoints':255.0}}})
+        rows=state.snapshot()['standings']['rows']
+        self.assertEqual([r['number'] for r in rows],['12','7','63'])
+        self.assertEqual(rows[0],dict(number='12',code='ANT',name=None,team='Mercedes',color='00D7B6',position=1,points=302.0,
+                                      current_position=1,current_points=302.0,points_gained=0.0,positions_gained=0))
+        self.assertEqual((rows[1]['code'],rows[1]['points_gained'],rows[1]['positions_gained']),(None,25.0,1))
+        self.assertEqual((rows[2]['points_gained'],rows[2]['positions_gained']),(8.0,-1))
+        state.apply('SessionInfo',{'Type':'Qualifying','Name':'Qualifying'})
+        self.assertEqual(state.snapshot()['standings'],dict(rows=[],reason='Championship projection is shown only in races and sprints.'))
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'old.jsonl'; path.write_text(json.dumps(dict(at=0,topic='SessionInfo',data=INFO)))
+            state=State(); Replay(state,path)
+            self.assertIn('No championship data in this recording',state.snapshot()['standings']['reason'])
+
     def test_replay_controls_and_order(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'test.jsonl'
@@ -94,15 +149,11 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual((replay.start,replay.position),(0,0))
 
     def test_default_recording(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            archive,demo=Path(tmp)/'archive.jsonl',Path(tmp)/'demo.jsonl'
-            with patch.object(app_module,'ARCHIVE_RECORDING',archive),patch.object(app_module,'DEMO_RECORDING',demo),\
-                    patch.dict('os.environ',{},clear=True):
-                self.assertEqual(default_recording(),demo)
-                archive.write_text('{}')
-                self.assertEqual(default_recording(),archive)
-                with patch.dict('os.environ',{'F1_RECORDING':'/elsewhere/x.jsonl'}):
-                    self.assertEqual(default_recording(),Path('/elsewhere/x.jsonl'))
+        with patch.dict('os.environ',{},clear=True):
+            self.assertEqual(default_recording(),app_module.DEMO_RECORDING)
+            self.assertEqual(default_recording().name,'demo.jsonl')
+            with patch.dict('os.environ',{'F1_RECORDING':'/elsewhere/x.jsonl'}):
+                self.assertEqual(default_recording(),Path('/elsewhere/x.jsonl'))
 
     def test_protocol_and_reconnect_backoff(self):
         self.assertNotIn('CarData.z',TOPICS); self.assertIn('Position.z',TOPICS)
@@ -222,3 +273,84 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(client.post('/api/mode',json={'mode':'replay'}).json()['connection']['mode'],'replay')
             self.assertEqual(client.post('/api/replay/control',json={'action':'pause'}).status_code,200)
             self.assertEqual(client.post('/api/mode',json={'mode':'bogus'}).status_code,422)
+
+    @contextmanager
+    def archive_client(self, tmp, import_by_key=None):
+        """App on the demo replay with the archive index, recordings dir, importer and clock patched."""
+        async def idle_live(state, path):
+            await asyncio.Event().wait()
+        with patch.dict('os.environ',{'F1_MODE':'replay','F1_RECORDING':DEMO}), patch('dashboard.app.run_live',idle_live),\
+                patch('dashboard.historical.download',index_fetch({2026:INDEX_2026})),\
+                patch('dashboard.historical.RECORDINGS',Path(tmp)),patch('dashboard.app.utc_now',lambda:DURING_RACE_COOLDOWN),\
+                patch('dashboard.historical.import_by_key',import_by_key),TestClient(app) as client:
+            yield client
+
+    def wait_for_archive(self, client):
+        deadline=time.monotonic()+20
+        while client.get('/api/state').json()['archive']['status']=='importing':
+            self.assertLess(time.monotonic(),deadline); time.sleep(.05)
+        return client.get('/api/state').json()
+
+    def test_archive_catalog_endpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.archive_client(tmp) as client:
+                body=client.get('/api/archive?year=2026').json()
+                self.assertEqual(body['years'],list(range(2018,2027)))
+                self.assertEqual(body['year'],2026)
+                self.assertEqual([s['available'] for s in body['events'][3]['sessions']],[True,False])
+                self.assertEqual(client.get('/api/archive').json()['year'],2026)
+                for year in (2017,2027):
+                    self.assertEqual(client.get(f'/api/archive?year={year}').status_code,422)
+                with patch('dashboard.historical.download',side_effect=subprocess.CalledProcessError(6,'curl')):
+                    response=client.get('/api/archive?year=2025')
+                self.assertEqual(response.status_code,502)
+                self.assertIn('archive index',response.json()['detail'])
+
+    def test_archive_load_replays_the_session_and_survives_mode_switch(self):
+        imported=[]
+        def fake_import(year,key,output,fetch):
+            imported.append((year,key)); shutil.copy(DEMO,output)
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.archive_client(tmp,fake_import) as client:
+                self.assertIsNone(client.get('/api/state').json()['archive'])
+                response=client.post('/api/archive/load',json={'year':2026,'key':41})
+                self.assertEqual(response.status_code,202)
+                self.assertEqual(response.json(),dict(id=1,status='importing',year=2026,key=41,label='2026 Bahrain Grand Prix · Race',error=None))
+                state=self.wait_for_archive(client)
+                expected=Path(tmp)/'archive-2026-bahrain-grand-prix-race-41.jsonl'
+                self.assertEqual(state['archive']['status'],None)
+                self.assertEqual(app.state.recording,expected)
+                self.assertTrue(state['replay']['label'].endswith(expected.name))
+                self.assertEqual(imported,[(2026,41)])
+                client.post('/api/mode',json={'mode':'live'})
+                self.assertIsNone(client.get('/api/state').json()['replay'])
+                state=client.post('/api/mode',json={'mode':'replay'}).json()
+                self.assertTrue(state['replay']['label'].endswith(expected.name))
+                self.assertEqual(state['archive']['status'],None)
+                # Loading again reuses the recording; loading from Live switches to Historical.
+                client.post('/api/mode',json={'mode':'live'})
+                self.assertEqual(client.post('/api/archive/load',json={'year':2026,'key':41}).json()['id'],2)
+                state=self.wait_for_archive(client)
+                self.assertEqual(state['connection']['mode'],'replay')
+                self.assertEqual(imported,[(2026,41)])
+
+    def test_archive_load_rejects_busy_unknown_unavailable_and_reports_errors(self):
+        def failed_import(year,key,output,fetch):
+            raise ValueError('Archive lacks SessionInfo')
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.archive_client(tmp,failed_import) as client:
+                before=app.state.timing
+                self.assertEqual(client.post('/api/archive/load',json={'year':2026,'key':999}).status_code,422)
+                unavailable=client.post('/api/archive/load',json={'year':2026,'key':31})
+                self.assertEqual(unavailable.status_code,422)
+                self.assertIn('not archived yet',unavailable.json()['detail'])
+                self.assertEqual(client.post('/api/archive/load',json={'year':2017,'key':41}).status_code,422)
+                app.state.archive_job=dict(status='importing')
+                self.assertEqual(client.post('/api/archive/load',json={'year':2026,'key':41}).status_code,409)
+                app.state.archive_job=None
+                self.assertEqual(client.post('/api/archive/load',json={'year':2026,'key':41}).status_code,202)
+                state=self.wait_for_archive(client)
+                self.assertEqual((state['archive']['status'],state['archive']['error']),('error','Archive lacks SessionInfo'))
+                self.assertIs(app.state.timing,before)
+                self.assertEqual(app.state.recording,Path(DEMO))
+                self.assertEqual(state['replay']['label'],'Demo replay')

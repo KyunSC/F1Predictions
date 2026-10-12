@@ -1,9 +1,10 @@
 import {useEffect,useMemo,useRef,useState} from 'react'
 import type {Driver} from './types'
 import {aligned,transform,type Stream} from './positions'
-import {circuit,Projector,projectedMarker,placeLabels,labelOffsets,type LabelOffset} from './projection'
+import {atDistance,circuit,Projector,projectedMarker,placeLabels,labelOffsets,type LabelOffset} from './projection'
+import {ghostDistance,lapSeconds,rejoinSummary,travelDirection} from './pitRejoin'
 type Geometry={session_identity:string;available:boolean;reason:string;outline:[number,number][];rotation:number;attribution:string;provenance:string;synthetic:boolean;pending?:boolean}
-export function TrackMap({stream,online,time,drivers,selected,select,reset}:{stream?:Stream;online:boolean;time:number;drivers:Driver[];selected:string|null;select:(n:string)=>void;reset:()=>void}){
+export function TrackMap({stream,online,time,drivers,selected,select,reset,pitLoss}:{stream?:Stream;online:boolean;time:number;drivers:Driver[];selected:string|null;select:(n:string)=>void;reset:()=>void;pitLoss?:number|null}){
  const [geometry,setGeometry]=useState<Geometry|null>(null),[error,setError]=useState(''),[reduced,setReduced]=useState(false)
  const svg=useRef<SVGSVGElement>(null),offsets=useRef(new Map<string,LabelOffset>()),[viewport,setViewport]=useState({width:700,height:340})
  const identity=stream?.session_identity
@@ -31,6 +32,8 @@ export function TrackMap({stream,online,time,drivers,selected,select,reset}:{str
  offsets.current=labelOffsets(anchors,labels)
  const displaced=(n:string)=>{const o=offsets.current.get(n)!;return Math.hypot(o.dx-prefer.dx,o.dy-prefer.dy)>.5}
  const chosen=marks.find(m=>m.n===selected),driver=drivers.find(d=>d.number===selected)
+ const ghostAt=chosen&&projector&&driver?.pit_rejoin?ghostDistance(chosen.p!.distance,travelDirection(histories.find(h=>h.n===selected)!.s.filter(s=>s.presentation_timestamp<=time),projector.track.length),pitLoss,lapSeconds(driver.last_lap)??lapSeconds(driver.best_lap),projector.track.length):null
+ const ghost=ghostAt===null?null:transform(...atDistance(projector!.track,ghostAt),geometry?.rotation||0),ghostColor=`#${/^[0-9a-f]{6}$/i.test(driver?.color||'')?driver!.color:'888888'}`
  const status=!online||stream?.connection==='connecting'||stream?.connection==='reconnecting'?'Disconnected · frozen':stream?.replay?`Replay${stream.synthetic?' · synthetic demo':''}${stream.replay.paused?' · paused':stream.replay.ended?' · finished':''}`:'Live coordinates'
  return <section className="panel track-map"><div className="panel-heading"><h2>Track map</h2><span>{status}</span></div><p className="description">Approximate track-projected positions{stream?.synthetic?' · synthetic demo':''} · Pit-lane and off-track measurements also project onto the outline. Track location differs from race position. · 1s display buffer{reduced?' · reduced motion':''}</p>
  {!stream?.available&&<p role="status" className="description">Track map unavailable: {stream?.reason||'Awaiting coordinates'}</p>}
@@ -39,6 +42,7 @@ export function TrackMap({stream,online,time,drivers,selected,select,reset}:{str
  <svg ref={svg} data-presentation-time={time} aria-label="Circuit and driver coordinates" viewBox={`${left} ${top} ${viewWidth} ${viewHeight}`}>
  <polyline points={[...points,points[0]].map(p=>p.join(',')).join(' ')} fill="none" stroke="#697486" strokeWidth={Math.max(width,height)*.012} strokeLinejoin="round"/>
  {marks.filter(({n})=>displaced(n)).map(({n,p})=>{const [x,y]=transform(p!.x,p!.y,geometry!.rotation),label=labels.find(l=>l.number===n)!,lx=Math.max(label.x,Math.min(label.x+label.width,x)),ly=Math.max(label.y,Math.min(label.y+label.height,y));return <line key={n} x1={x} y1={y} x2={lx} y2={ly} stroke="#8e9aab" strokeWidth={size*.0015} opacity={p!.stale?.45:.8} pointerEvents="none"/>})}
+ {ghost&&<g role="img" aria-label={`${driver?.code||selected} rejoin point if pitted now`} className="pit-ghost" pointerEvents="none" transform={`translate(${ghost[0]} ${ghost[1]})`}><circle r={radius*1.4} fill="none" stroke={ghostColor} strokeWidth={radius*.35} strokeDasharray={`${radius*.7} ${radius*.45}`}/><text y={-radius*2.3} textAnchor="middle" fontSize={font*.8} fontWeight={700} fill="#fff">PIT P{driver!.pit_rejoin!.position}</text></g>}
  {marks.sort((a,b)=>Number(a.n===selected)-Number(b.n===selected)).map(({n,p,d})=>{const [x,y]=transform(p!.x,p!.y,geometry!.rotation);const label=labels.find(l=>l.number===n)!;const lx=label.x-x,ly=label.y-y,active=selected===n,color=`#${/^[0-9a-f]{6}$/i.test(d?.color||'')?d!.color:'888888'}`;return <g key={n} data-driver-number={n} data-lap-distance={p!.distance} role="button" tabIndex={0} aria-label={`Select ${d?.name||n}`} aria-pressed={active} onClick={()=>select(n)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(n)}}} className="car-marker" opacity={p!.stale?.45:1} transform={`translate(${x} ${y})`}>
   <circle r={radius*(active?1.4:1)} fill={active?'#fff':color} stroke={active?color:'#10131b'} strokeWidth={radius*(active?.5:.25)}/>
   <rect x={lx} y={ly} width={label.width} height={label.height} rx={font*.15} fill={active?color:'#10131b'} fillOpacity={active?1:.88}/>
@@ -46,5 +50,5 @@ export function TrackMap({stream,online,time,drivers,selected,select,reset}:{str
   <text x={lx+label.width/2} y={ly+label.height*.7} textAnchor="middle" fontSize={font} fontWeight={700} letterSpacing={font*.04} fill="#fff">{d?.code||n}</text></g>})}
  </svg><p className="description">{geometry!.attribution}{geometry!.synthetic?' · Synthetic coordinates and outline, not measured data':''}</p></>}
  {stream?.diagnostics&&<details className="description"><summary>Replay coordinate diagnostics</summary><p>{stream.diagnostics.coordinate_packets} packets · {stream.diagnostics.decoded_samples} decoded samples · {stream.diagnostics.driver_coverage.length} numbers · geometry {geometryCurrent&&alignment?'available':'unavailable'}</p><p>Missing drivers: {stream.diagnostics.missing_drivers.join(', ')||'none'} · Rejected: {JSON.stringify(stream.diagnostics.rejected)} · Gaps over 5s: {JSON.stringify(stream.diagnostics.gaps_over_5s)}</p></details>}
- <div className="panel-note" aria-live="polite">{selected?`${driver?.name||selected} · P${driver?.position||'—'} · coordinate age ${chosen?chosen.p!.age.toFixed(1)+'s':'unavailable'}`:'Select a car or a driver in the timing tower.'}</div></section>
+ <div className="panel-note" aria-live="polite">{selected?`${driver?.name||selected} · P${driver?.position||'—'} · coordinate age ${chosen?chosen.p!.age.toFixed(1)+'s':'unavailable'}`:'Select a car or a driver in the timing tower.'}{driver&&<div className="pit-note">{rejoinSummary(driver,drivers)}{ghost?' · dashed ring marks the approximate on-track rejoin point':''}</div>}</div></section>
 }

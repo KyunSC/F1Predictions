@@ -53,19 +53,30 @@ Backend environment variables:
   one launch command; the header's Historical/Live toggle calls `POST /api/mode`, which
   cancels the current task and rebuilds `State` in the other mode.
 - `F1_RECORDING=dashboard/recordings/<file>.jsonl` picks the replay recording (with
-  `F1_MODE=replay`). Unset, it defaults to
-  `dashboard/recordings/archive-2026-bahrain-race.jsonl` (all 22 cars, imported by
-  `dashboard/run.py` on first start and gitignored) if that file exists, else
-  `demo.jsonl` (six synthetic drivers). Tests that start the app pin it to the demo.
+  `F1_MODE=replay`). `dashboard/run.py` sets it, when unset, to the most recent
+  archived Grand Prix race (`python -m dashboard.historical --latest-race`, sprints
+  skipped), importing it to a gitignored `dashboard/recordings/archive-*.jsonl` if
+  missing. Unset in the backend, or if that import fails, it is `demo.jsonl` (six
+  synthetic drivers). Tests that start the app pin it to the demo.
+  The replay bar's **Change session** picker (`GET /api/archive`,
+  `POST /api/archive/load`) imports and replays any archived session from 2018 on
+  without a restart; it is display only and never feeds the model.
 - `F1_PREDICTIONS=/absolute/path/predictions.json` overrides the export location.
+- `F1_PIT_LOSS=/absolute/path/pit_loss.json` overrides the pit-loss table location
+  (default `dashboard/pit_loss.json`, tracked). Regenerate it with
+  `./.venv/bin/python -m dashboard.pit_loss --seasons 2023 2024 2025 2026`. It holds
+  per-race green, SC and VSC medians; the dashboard picks one from `TrackStatus`. Lookups
+  use only races that started strictly before the session shown. Display only; it never
+  feeds the model.
 - `F1TV_TOKEN=<subscription token>` authenticates the live connection. Without it the
   backend uses the token saved by `./.venv/bin/python -m fastf1 auth f1tv --authenticate`.
   F1 only streams car coordinates (`Position.z`) to F1TV Access/Pro subscribers; with no
   valid token, live timing still works but the track map shows no cars. Never log or
   record the token.
 
-The backend reads `dashboard/predictions.json` and the recording once at startup, so
-restart it after re-exporting predictions. Before relying on the frontend, run
+The backend reads `dashboard/predictions.json`, `dashboard/pit_loss.json` and the
+recording once at startup, so restart it after re-exporting predictions or regenerating
+the pit-loss table. Before relying on the frontend, run
 `./.venv/bin/python -m dashboard.smoke --seconds 45` to check live-timing access (needs
 network and an active session).
 

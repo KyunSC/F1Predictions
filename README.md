@@ -316,14 +316,16 @@ the top right to switch to live timing without restarting (`POST /api/mode`). Ea
 switch rebuilds the timing state, so replay position and live buffers start fresh,
 and all open tabs follow it. No root-level `npm install` is needed; `npm run dev`
 uses the same launcher as `./start.sh`.
-Existing `F1_RECORDING` and
+Historical opens on the most recent archived Grand Prix race (see
+[Recordings and controls](#recordings-and-controls)); **Change session** picks any
+other archived session. Existing `F1_RECORDING` and
 `F1_PREDICTIONS` environment variables still work. Stop any separately running
 backend or frontend first; the launcher reports occupied ports without killing them.
 
 ### Separate services (optional)
 
-From the repository root, start the backend (the archive replay below is the
-default, or the demo if it has not been imported):
+From the repository root, start the backend (Historical plays the demo unless
+`F1_RECORDING` is set; `npm run dev` sets it to the most recent race):
 
 ```bash
 ./.venv/bin/pip install -r requirements.txt
@@ -384,6 +386,67 @@ export is shown only during the sprint, not Sunday's Grand Prix. Exports without
 recognized as the same venue. Drivers are
 matched by racing number, never name. Pace rank is distinct from finishing position.
 
+### If pitted now
+
+The timing tower's **IF PIT** column answers "if this driver pitted now, where would they
+rejoin?" It adds the circuit's pit loss to the driver's current time behind the leader and
+re-ranks against every other running car, giving the projected race position (`P7 ▼3`
+means three places lost). Hover the cell for the cars they would rejoin behind and ahead
+of, with gaps. A driver in the pit lane shows `IN PIT`; retired drivers and cars without a
+numeric gap or interval chain show `—`. Lapped cars use the car ahead's time plus their
+interval. The projection is race order, not on-track traffic, and is shown only in races
+(Grand Prix and sprint).
+
+Pit loss comes from `dashboard/pit_loss.json`, measured separately for green-flag,
+safety-car (SC) and virtual-safety-car (VSC) stops in past Grands Prix:
+
+- **Green flag:** both the in-lap and the out-lap are fully green. The loss is in-lap
+  plus out-lap minus twice the median of that driver's clean green-flag laps within
+  five laps of the stop. Kept if 10–45 s.
+- **SC:** both laps include safety-car running, with no red flag. **VSC:** the in-lap
+  includes VSC, the out-lap VSC or VSC ending, with no SC or red flag. Under either,
+  everyone laps slowly and a queue forms behind the safety car, so the driver's own green
+  laps are no reference. The loss is instead the time from the start of the in-lap to
+  the end of the out-lap, minus the median of the same two laps for the three
+  non-pitting cars that were closest on track when the in-lap began. Kept if 5–35 s;
+  a stop always costs some time against the pit-lane limit, and lower values come from
+  races where nearly everyone pitted and the cars that stayed out were held in the queue. SC losses vary more from race to race than green or VSC ones,
+  because the queue bunches differently each time.
+
+All conditions drop lap-1 stops and stops whose lane time exceeds 1.5× the race's median
+(penalties, repairs). A race keeps a condition only with at least three such stops, and
+the table stores one median per race and condition. The dashboard picks the condition from
+the live track status (SC for code 4, VSC for 6 and 7, green otherwise), then uses the
+median of the circuit's race medians for that condition, from races that started strictly
+before the session shown. A circuit with no history for that condition (the 2026 Bahrain GP
+at Sepang, or the synthetic demo) falls back to the median across all circuits; if no
+circuit has SC or VSC history, the green-flag loss is used and the footer says so. Under a
+red flag pit stops are not projected. The footer names the value, its condition and its
+basis. This is display only and never feeds the model.
+
+Regenerate the table (uses the FastF1 `cache/`, downloading any missing race):
+
+```bash
+./.venv/bin/python -m dashboard.pit_loss --seasons 2023 2024 2025 2026
+```
+
+The backend reads it once at startup; restart after regenerating, or set
+`F1_PIT_LOSS=/absolute/path/pit_loss.json`. Without the file the column shows `—` and the
+footer explains why.
+
+### Championship if positions hold
+
+The **Championship if positions hold** panel shows the drivers' standings if every car
+finished where it runs now. It comes straight from the feed's `ChampionshipPrediction`
+topic, so F1 does the points, tie-breaks and penalties. The dashboard computes nothing.
+Each row shows the projected position and points, the points gained in this session
+(`+25`), and places gained or lost against the standings before the session (`▲1`). A
+driver in the standings who is not entered in this session is listed by racing number.
+It is shown only in races (Grand Prix and sprint). Recordings imported before this topic
+was subscribed have no championship data and say so. Re-import them with
+`dashboard.historical`, or delete the `dashboard/recordings/archive-*.jsonl` file and
+load the session again from **Change session**. This is display only and never feeds the model.
+
 ### Recordings and controls
 
 Live mode writes received subscribed messages to ignored timestamped JSONL files
@@ -397,18 +460,32 @@ F1_MODE=replay F1_RECORDING=dashboard/recordings/live-smoke.jsonl \
   ./.venv/bin/uvicorn dashboard.app:app --host 127.0.0.1 --port 8000
 ```
 
-Without `F1_RECORDING`, Historical mode plays
-`dashboard/recordings/archive-2026-bahrain-race.jsonl`: the relocated 2026 Bahrain
-GP at Kuala Lumpur, with real coordinates for all 22 cars. `npm run dev` imports
-it on first start with `dashboard.historical`, reusing `cache/historical/` and
-downloading only what is missing. The file is about 30 MB and gitignored. If the import fails
-(e.g. offline on a fresh clone), the launcher prints a warning and the backend
-falls back to the bundled `demo.jsonl`, a two-minute, six-driver **Demo replay**
-with synthetic values. Reconstructed archive recordings open at lights out (the
+Without `F1_RECORDING`, `npm run dev` opens Historical on the most recent archived
+Grand Prix **Race** (sprints are skipped; a race counts as archived an hour after it
+ends, and in January the previous season's last race is used). It runs
+`./.venv/bin/python -m dashboard.historical --latest-race`, which imports the race to
+`dashboard/recordings/archive-<year>-<event>-<session>-<key>.jsonl` if it is missing,
+reusing `cache/historical/` and downloading only what is missing. A race file is
+about 30 MB and gitignored; the first import of a new race takes a while. The current
+season's archive index is refetched on each start (falling back to the cached copy
+offline); earlier seasons stay cached. If the import fails (e.g. offline on a fresh
+clone), the launcher prints a warning and the backend falls back to the bundled
+`demo.jsonl`, a two-minute, six-driver **Demo replay** with synthetic values.
+
+**Change session** (in the replay bar, or beside the mode switch in Live) opens a
+Year / Event / Session picker covering every session in F1's archive index from 2018
+to the current season: practice, qualifying, sprint qualifying, sprints, races and
+testing days. Sessions that ended less than an hour ago are disabled ("Not archived
+yet"); ones already imported are marked "· downloaded" and load without a download.
+**Load** imports the session if needed (progress shows in the panel), then replays
+it for all tabs; loading from Live switches to Historical, and toggling Live and back
+returns to the picked session. An import error leaves the current replay running. The
+choice is not persisted across restarts. Predictions stay hidden on any session other
+than the predicted one. Reconstructed archive recordings open at lights out (the
 first `SessionStatus` `Started`) with all earlier timing already applied, and
 Restart returns there. The progress bar stays on the recording clock. Pause/resume, restart and 1×/2×/5× speed controls apply to all connected tabs.
-At the end, use Restart to play again. Recordings are selected only at startup;
-the browser cannot select arbitrary filesystem paths.
+At the end, use Restart to play again. The browser picks archive sessions by
+year and numeric session key only; it cannot select arbitrary filesystem paths.
 
 - `GET /api/state`: session, drivers, matching predictions, messages, weather,
   track/lap status, connection freshness, replay state and `map_id`.
@@ -423,6 +500,14 @@ the browser cannot select arbitrary filesystem paths.
   the same localhost origin restrictions and one shared upstream connection.
 - `POST /api/replay/control`: `{"action":"pause"}`, `{"action":"resume"}`,
   `{"action":"restart"}`, or `{"action":"speed","speed":2}`. Returns 409 in live mode.
+- `GET /api/archive?year=2026`: `years` (2018 to the current year), `year`, and
+  `events` in index order, each with `sessions` (`key`, `name`, `type`, `start_utc`,
+  `available`, `cached`). 422 for an out-of-range year; 502 if the index can't be
+  fetched and isn't cached.
+- `POST /api/archive/load` `{"year":2026,"key":11731}`: 202 with the import job
+  (`id`, `status`, `year`, `key`, `label`, `error`); 422 for an unknown or not yet
+  archived session; 409 while another import runs. Progress and errors arrive in the
+  snapshot's `archive` field.
 
 ### Dashboard verification
 
@@ -512,6 +597,10 @@ F1_MODE=replay F1_RECORDING=cache/suzuka-replay.jsonl \
 ./.venv/bin/python -m dashboard.diagnostics cache/suzuka-replay.jsonl \
   --geometry cache/track-maps/46-2025.json
 ```
+
+`--latest-race` (no other flags needed) imports the most recent archived Grand Prix
+race to `dashboard/recordings/` if missing and prints its path as JSON; `npm run dev`
+uses it at startup.
 
 Open the frontend normally. Geometry is cached after the map is first opened;
 omit `--geometry` for a coordinates-only offline report. Event and session names
