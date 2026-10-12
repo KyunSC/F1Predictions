@@ -1,0 +1,1251 @@
+{
+  "generated_at": "2026-10-11T12:36:45+00:00",
+  "method": "green: in+out lap minus 2x the driver's local clean-lap median; sc/vsc: in-lap start to out-lap end minus the same span for the nearest non-pitting cars",
+  "races": [
+    {
+      "year": 2023,
+      "event": "Bahrain Grand Prix",
+      "circuit_key": 63,
+      "location": "Sakhir",
+      "date": "2023-03-05",
+      "losses": {
+        "green": {
+          "stops": 42,
+          "median_loss": 23.61
+        },
+        "vsc": {
+          "stops": 6,
+          "median_loss": 13.9
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "Saudi Arabian Grand Prix",
+      "circuit_key": 149,
+      "location": "Jeddah",
+      "date": "2023-03-19",
+      "losses": {
+        "green": {
+          "stops": 9,
+          "median_loss": 20.61
+        },
+        "sc": {
+          "stops": 9,
+          "median_loss": 15.88
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "Azerbaijan Grand Prix",
+      "circuit_key": 144,
+      "location": "Baku",
+      "date": "2023-04-30",
+      "losses": {
+        "green": {
+          "stops": 10,
+          "median_loss": 21.28
+        },
+        "sc": {
+          "stops": 8,
+          "median_loss": 21.2
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "Miami Grand Prix",
+      "circuit_key": 151,
+      "location": "Miami",
+      "date": "2023-05-07",
+      "losses": {
+        "green": {
+          "stops": 19,
+          "median_loss": 19.71
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "Monaco Grand Prix",
+      "circuit_key": 22,
+      "location": "Monaco",
+      "date": "2023-05-28",
+      "losses": {
+        "green": {
+          "stops": 13,
+          "median_loss": 23.09
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "Spanish Grand Prix",
+      "circuit_key": 15,
+      "location": "Barcelona",
+      "date": "2023-06-04",
+      "losses": {
+        "green": {
+          "stops": 42,
+          "median_loss": 23.05
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "Canadian Grand Prix",
+      "circuit_key": 23,
+      "location": "Montr\u00e9al",
+      "date": "2023-06-18",
+      "losses": {
+        "green": {
+          "stops": 13,
+          "median_loss": 20.11
+        },
+        "sc": {
+          "stops": 7,
+          "median_loss": 11.53
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "Austrian Grand Prix",
+      "circuit_key": 19,
+      "location": "Spielberg",
+      "date": "2023-07-02",
+      "losses": {
+        "green": {
+          "stops": 27,
+          "median_loss": 20.94
+        },
+        "vsc": {
+          "stops": 12,
+          "median_loss": 13.11
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "British Grand Prix",
+      "circuit_key": 2,
+      "location": "Silverstone",
+      "date": "2023-07-09",
+      "losses": {
+        "green": {
+          "stops": 10,
+          "median_loss": 19.73
+        },
+        "sc": {
+          "stops": 4,
+          "median_loss": 13.81
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "Hungarian Grand Prix",
+      "circuit_key": 4,
+      "location": "Budapest",
+      "date": "2023-07-23",
+      "losses": {
+        "green": {
+          "stops": 36,
+          "median_loss": 20.84
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "Belgian Grand Prix",
+      "circuit_key": 7,
+      "location": "Spa-Francorchamps",
+      "date": "2023-07-30",
+      "losses": {
+        "green": {
+          "stops": 37,
+          "median_loss": 17.86
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "Dutch Grand Prix",
+      "circuit_key": 55,
+      "location": "Zandvoort",
+      "date": "2023-08-27",
+      "losses": {
+        "green": {
+          "stops": 47,
+          "median_loss": 22.95
+        },
+        "sc": {
+          "stops": 4,
+          "median_loss": 17.84
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "Italian Grand Prix",
+      "circuit_key": 39,
+      "location": "Monza",
+      "date": "2023-09-03",
+      "losses": {
+        "green": {
+          "stops": 25,
+          "median_loss": 24.73
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "Singapore Grand Prix",
+      "circuit_key": 61,
+      "location": "Marina Bay",
+      "date": "2023-09-17",
+      "losses": {
+        "green": {
+          "stops": 3,
+          "median_loss": 27.42
+        },
+        "sc": {
+          "stops": 14,
+          "median_loss": 17.86
+        },
+        "vsc": {
+          "stops": 5,
+          "median_loss": 25.5
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "Japanese Grand Prix",
+      "circuit_key": 46,
+      "location": "Suzuka",
+      "date": "2023-09-24",
+      "losses": {
+        "green": {
+          "stops": 27,
+          "median_loss": 21.2
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "Qatar Grand Prix",
+      "circuit_key": 150,
+      "location": "Lusail",
+      "date": "2023-10-08",
+      "losses": {
+        "green": {
+          "stops": 41,
+          "median_loss": 27.35
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "United States Grand Prix",
+      "circuit_key": 9,
+      "location": "Austin",
+      "date": "2023-10-22",
+      "losses": {
+        "green": {
+          "stops": 36,
+          "median_loss": 20.49
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "Mexico City Grand Prix",
+      "circuit_key": 65,
+      "location": "Mexico City",
+      "date": "2023-10-29",
+      "losses": {
+        "green": {
+          "stops": 16,
+          "median_loss": 21.47
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "S\u00e3o Paulo Grand Prix",
+      "circuit_key": 14,
+      "location": "S\u00e3o Paulo",
+      "date": "2023-11-05",
+      "losses": {
+        "green": {
+          "stops": 33,
+          "median_loss": 21.56
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "Las Vegas Grand Prix",
+      "circuit_key": 152,
+      "location": "Las Vegas",
+      "date": "2023-11-19",
+      "losses": {
+        "green": {
+          "stops": 14,
+          "median_loss": 24.16
+        },
+        "sc": {
+          "stops": 9,
+          "median_loss": 12.72
+        }
+      }
+    },
+    {
+      "year": 2023,
+      "event": "Abu Dhabi Grand Prix",
+      "circuit_key": 70,
+      "location": "Yas Island",
+      "date": "2023-11-26",
+      "losses": {
+        "green": {
+          "stops": 37,
+          "median_loss": 21.49
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Bahrain Grand Prix",
+      "circuit_key": 63,
+      "location": "Sakhir",
+      "date": "2024-03-02",
+      "losses": {
+        "green": {
+          "stops": 37,
+          "median_loss": 23.56
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Saudi Arabian Grand Prix",
+      "circuit_key": 149,
+      "location": "Jeddah",
+      "date": "2024-03-09",
+      "losses": {
+        "green": {
+          "stops": 4,
+          "median_loss": 20.69
+        },
+        "sc": {
+          "stops": 13,
+          "median_loss": 10.89
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Australian Grand Prix",
+      "circuit_key": 10,
+      "location": "Melbourne",
+      "date": "2024-03-24",
+      "losses": {
+        "green": {
+          "stops": 29,
+          "median_loss": 20.03
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Japanese Grand Prix",
+      "circuit_key": 46,
+      "location": "Suzuka",
+      "date": "2024-04-07",
+      "losses": {
+        "green": {
+          "stops": 35,
+          "median_loss": 21.3
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Chinese Grand Prix",
+      "circuit_key": 49,
+      "location": "Shanghai",
+      "date": "2024-04-21",
+      "losses": {
+        "green": {
+          "stops": 20,
+          "median_loss": 22.68
+        },
+        "sc": {
+          "stops": 11,
+          "median_loss": 21.66
+        },
+        "vsc": {
+          "stops": 3,
+          "median_loss": 19.5
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Miami Grand Prix",
+      "circuit_key": 151,
+      "location": "Miami",
+      "date": "2024-05-05",
+      "losses": {
+        "green": {
+          "stops": 12,
+          "median_loss": 19.66
+        },
+        "sc": {
+          "stops": 5,
+          "median_loss": 13.68
+        },
+        "vsc": {
+          "stops": 3,
+          "median_loss": 11.38
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Emilia Romagna Grand Prix",
+      "circuit_key": 6,
+      "location": "Imola",
+      "date": "2024-05-19",
+      "losses": {
+        "green": {
+          "stops": 25,
+          "median_loss": 27.32
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Monaco Grand Prix",
+      "circuit_key": 22,
+      "location": "Monaco",
+      "date": "2024-05-26",
+      "losses": {
+        "green": {
+          "stops": 5,
+          "median_loss": 20.56
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Canadian Grand Prix",
+      "circuit_key": 23,
+      "location": "Montr\u00e9al",
+      "date": "2024-06-09",
+      "losses": {
+        "green": {
+          "stops": 17,
+          "median_loss": 24.24
+        },
+        "sc": {
+          "stops": 17,
+          "median_loss": 17.86
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Spanish Grand Prix",
+      "circuit_key": 15,
+      "location": "Barcelona",
+      "date": "2024-06-23",
+      "losses": {
+        "green": {
+          "stops": 42,
+          "median_loss": 21.75
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Austrian Grand Prix",
+      "circuit_key": 19,
+      "location": "Spielberg",
+      "date": "2024-06-30",
+      "losses": {
+        "green": {
+          "stops": 41,
+          "median_loss": 20.12
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "British Grand Prix",
+      "circuit_key": 2,
+      "location": "Silverstone",
+      "date": "2024-07-07",
+      "losses": {
+        "green": {
+          "stops": 45,
+          "median_loss": 22.99
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Hungarian Grand Prix",
+      "circuit_key": 4,
+      "location": "Budapest",
+      "date": "2024-07-21",
+      "losses": {
+        "green": {
+          "stops": 40,
+          "median_loss": 19.88
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Belgian Grand Prix",
+      "circuit_key": 7,
+      "location": "Spa-Francorchamps",
+      "date": "2024-07-28",
+      "losses": {
+        "green": {
+          "stops": 32,
+          "median_loss": 17.94
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Dutch Grand Prix",
+      "circuit_key": 55,
+      "location": "Zandvoort",
+      "date": "2024-08-25",
+      "losses": {
+        "green": {
+          "stops": 26,
+          "median_loss": 22.26
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Italian Grand Prix",
+      "circuit_key": 39,
+      "location": "Monza",
+      "date": "2024-09-01",
+      "losses": {
+        "green": {
+          "stops": 29,
+          "median_loss": 25.27
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Azerbaijan Grand Prix",
+      "circuit_key": 144,
+      "location": "Baku",
+      "date": "2024-09-15",
+      "losses": {
+        "green": {
+          "stops": 16,
+          "median_loss": 21.09
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Singapore Grand Prix",
+      "circuit_key": 61,
+      "location": "Marina Bay",
+      "date": "2024-09-22",
+      "losses": {
+        "green": {
+          "stops": 22,
+          "median_loss": 28.98
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "United States Grand Prix",
+      "circuit_key": 9,
+      "location": "Austin",
+      "date": "2024-10-20",
+      "losses": {
+        "green": {
+          "stops": 21,
+          "median_loss": 21.55
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Mexico City Grand Prix",
+      "circuit_key": 65,
+      "location": "Mexico City",
+      "date": "2024-10-27",
+      "losses": {
+        "green": {
+          "stops": 20,
+          "median_loss": 22.48
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "S\u00e3o Paulo Grand Prix",
+      "circuit_key": 14,
+      "location": "S\u00e3o Paulo",
+      "date": "2024-11-03",
+      "losses": {
+        "vsc": {
+          "stops": 8,
+          "median_loss": 21.62
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Las Vegas Grand Prix",
+      "circuit_key": 152,
+      "location": "Las Vegas",
+      "date": "2024-11-24",
+      "losses": {
+        "green": {
+          "stops": 38,
+          "median_loss": 21.72
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Qatar Grand Prix",
+      "circuit_key": 150,
+      "location": "Lusail",
+      "date": "2024-12-01",
+      "losses": {
+        "green": {
+          "stops": 7,
+          "median_loss": 28.24
+        }
+      }
+    },
+    {
+      "year": 2024,
+      "event": "Abu Dhabi Grand Prix",
+      "circuit_key": 70,
+      "location": "Yas Island",
+      "date": "2024-12-08",
+      "losses": {
+        "green": {
+          "stops": 20,
+          "median_loss": 22.43
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Australian Grand Prix",
+      "circuit_key": 10,
+      "location": "Melbourne",
+      "date": "2025-03-16",
+      "losses": {
+        "sc": {
+          "stops": 12,
+          "median_loss": 16.86
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Chinese Grand Prix",
+      "circuit_key": 49,
+      "location": "Shanghai",
+      "date": "2025-03-23",
+      "losses": {
+        "green": {
+          "stops": 23,
+          "median_loss": 22.04
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Japanese Grand Prix",
+      "circuit_key": 46,
+      "location": "Suzuka",
+      "date": "2025-04-06",
+      "losses": {
+        "green": {
+          "stops": 21,
+          "median_loss": 22.83
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Bahrain Grand Prix",
+      "circuit_key": 63,
+      "location": "Sakhir",
+      "date": "2025-04-13",
+      "losses": {
+        "green": {
+          "stops": 28,
+          "median_loss": 22.39
+        },
+        "sc": {
+          "stops": 13,
+          "median_loss": 19.34
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Saudi Arabian Grand Prix",
+      "circuit_key": 149,
+      "location": "Jeddah",
+      "date": "2025-04-20",
+      "losses": {
+        "green": {
+          "stops": 16,
+          "median_loss": 20.02
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Miami Grand Prix",
+      "circuit_key": 151,
+      "location": "Miami",
+      "date": "2025-05-04",
+      "losses": {
+        "green": {
+          "stops": 9,
+          "median_loss": 18.2
+        },
+        "vsc": {
+          "stops": 8,
+          "median_loss": 12.64
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Emilia Romagna Grand Prix",
+      "circuit_key": 6,
+      "location": "Imola",
+      "date": "2025-05-18",
+      "losses": {
+        "green": {
+          "stops": 10,
+          "median_loss": 28.22
+        },
+        "sc": {
+          "stops": 9,
+          "median_loss": 23.28
+        },
+        "vsc": {
+          "stops": 15,
+          "median_loss": 17.16
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Monaco Grand Prix",
+      "circuit_key": 22,
+      "location": "Monaco",
+      "date": "2025-05-25",
+      "losses": {
+        "green": {
+          "stops": 36,
+          "median_loss": 20.31
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Spanish Grand Prix",
+      "circuit_key": 15,
+      "location": "Barcelona",
+      "date": "2025-06-01",
+      "losses": {
+        "green": {
+          "stops": 39,
+          "median_loss": 22.02
+        },
+        "sc": {
+          "stops": 9,
+          "median_loss": 9.26
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Canadian Grand Prix",
+      "circuit_key": 23,
+      "location": "Montr\u00e9al",
+      "date": "2025-06-15",
+      "losses": {
+        "green": {
+          "stops": 27,
+          "median_loss": 19.35
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Austrian Grand Prix",
+      "circuit_key": 19,
+      "location": "Spielberg",
+      "date": "2025-06-29",
+      "losses": {
+        "green": {
+          "stops": 29,
+          "median_loss": 20.38
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "British Grand Prix",
+      "circuit_key": 2,
+      "location": "Silverstone",
+      "date": "2025-07-06",
+      "losses": {
+        "green": {
+          "stops": 16,
+          "median_loss": 22.02
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Belgian Grand Prix",
+      "circuit_key": 7,
+      "location": "Spa-Francorchamps",
+      "date": "2025-07-27",
+      "losses": {
+        "green": {
+          "stops": 26,
+          "median_loss": 17.5
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Hungarian Grand Prix",
+      "circuit_key": 4,
+      "location": "Budapest",
+      "date": "2025-08-03",
+      "losses": {
+        "green": {
+          "stops": 29,
+          "median_loss": 19.97
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Dutch Grand Prix",
+      "circuit_key": 55,
+      "location": "Zandvoort",
+      "date": "2025-08-31",
+      "losses": {
+        "green": {
+          "stops": 8,
+          "median_loss": 18.08
+        },
+        "sc": {
+          "stops": 20,
+          "median_loss": 17.23
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Italian Grand Prix",
+      "circuit_key": 39,
+      "location": "Monza",
+      "date": "2025-09-07",
+      "losses": {
+        "green": {
+          "stops": 18,
+          "median_loss": 24.99
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Azerbaijan Grand Prix",
+      "circuit_key": 144,
+      "location": "Baku",
+      "date": "2025-09-21",
+      "losses": {
+        "green": {
+          "stops": 15,
+          "median_loss": 20.79
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Singapore Grand Prix",
+      "circuit_key": 61,
+      "location": "Marina Bay",
+      "date": "2025-10-05",
+      "losses": {
+        "green": {
+          "stops": 22,
+          "median_loss": 22.68
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "United States Grand Prix",
+      "circuit_key": 9,
+      "location": "Austin",
+      "date": "2025-10-19",
+      "losses": {
+        "green": {
+          "stops": 18,
+          "median_loss": 20.57
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Mexico City Grand Prix",
+      "circuit_key": 65,
+      "location": "Mexico City",
+      "date": "2025-10-26",
+      "losses": {
+        "green": {
+          "stops": 26,
+          "median_loss": 21.56
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "S\u00e3o Paulo Grand Prix",
+      "circuit_key": 14,
+      "location": "S\u00e3o Paulo",
+      "date": "2025-11-09",
+      "losses": {
+        "green": {
+          "stops": 33,
+          "median_loss": 21.5
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Las Vegas Grand Prix",
+      "circuit_key": 152,
+      "location": "Las Vegas",
+      "date": "2025-11-23",
+      "losses": {
+        "green": {
+          "stops": 16,
+          "median_loss": 22.21
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Qatar Grand Prix",
+      "circuit_key": 150,
+      "location": "Lusail",
+      "date": "2025-11-30",
+      "losses": {
+        "green": {
+          "stops": 22,
+          "median_loss": 25.89
+        }
+      }
+    },
+    {
+      "year": 2025,
+      "event": "Abu Dhabi Grand Prix",
+      "circuit_key": 70,
+      "location": "Yas Island",
+      "date": "2025-12-07",
+      "losses": {
+        "green": {
+          "stops": 27,
+          "median_loss": 22.35
+        }
+      }
+    },
+    {
+      "year": 2026,
+      "event": "Australian Grand Prix",
+      "circuit_key": 10,
+      "location": "Melbourne",
+      "date": "2026-03-08",
+      "losses": {
+        "green": {
+          "stops": 7,
+          "median_loss": 22.74
+        },
+        "vsc": {
+          "stops": 14,
+          "median_loss": 16.89
+        }
+      }
+    },
+    {
+      "year": 2026,
+      "event": "Chinese Grand Prix",
+      "circuit_key": 49,
+      "location": "Shanghai",
+      "date": "2026-03-15",
+      "losses": {
+        "sc": {
+          "stops": 9,
+          "median_loss": 17.24
+        }
+      }
+    },
+    {
+      "year": 2026,
+      "event": "Japanese Grand Prix",
+      "circuit_key": 46,
+      "location": "Suzuka",
+      "date": "2026-03-29",
+      "losses": {
+        "green": {
+          "stops": 11,
+          "median_loss": 22.54
+        },
+        "sc": {
+          "stops": 10,
+          "median_loss": 15.44
+        }
+      }
+    },
+    {
+      "year": 2026,
+      "event": "Miami Grand Prix",
+      "circuit_key": 151,
+      "location": "Miami Gardens",
+      "date": "2026-05-03",
+      "losses": {
+        "green": {
+          "stops": 19,
+          "median_loss": 19.21
+        }
+      }
+    },
+    {
+      "year": 2026,
+      "event": "Canadian Grand Prix",
+      "circuit_key": 23,
+      "location": "Montr\u00e9al",
+      "date": "2026-05-24",
+      "losses": {
+        "green": {
+          "stops": 14,
+          "median_loss": 27.44
+        },
+        "vsc": {
+          "stops": 16,
+          "median_loss": 15.81
+        }
+      }
+    },
+    {
+      "year": 2026,
+      "event": "Monaco Grand Prix",
+      "circuit_key": 22,
+      "location": "Monte Carlo",
+      "date": "2026-06-07",
+      "losses": {
+        "green": {
+          "stops": 19,
+          "median_loss": 22.2
+        }
+      }
+    },
+    {
+      "year": 2026,
+      "event": "Barcelona Grand Prix",
+      "circuit_key": 15,
+      "location": "Barcelona",
+      "date": "2026-06-14",
+      "losses": {
+        "green": {
+          "stops": 40,
+          "median_loss": 22.98
+        },
+        "vsc": {
+          "stops": 5,
+          "median_loss": 19.8
+        }
+      }
+    },
+    {
+      "year": 2026,
+      "event": "Austrian Grand Prix",
+      "circuit_key": 19,
+      "location": "Spielberg",
+      "date": "2026-06-28",
+      "losses": {
+        "green": {
+          "stops": 33,
+          "median_loss": 20.94
+        },
+        "vsc": {
+          "stops": 5,
+          "median_loss": 15.39
+        }
+      }
+    },
+    {
+      "year": 2026,
+      "event": "British Grand Prix",
+      "circuit_key": 2,
+      "location": "Silverstone",
+      "date": "2026-07-05",
+      "losses": {
+        "green": {
+          "stops": 21,
+          "median_loss": 20.44
+        },
+        "sc": {
+          "stops": 13,
+          "median_loss": 20.01
+        },
+        "vsc": {
+          "stops": 4,
+          "median_loss": 11.45
+        }
+      }
+    },
+    {
+      "year": 2026,
+      "event": "Belgian Grand Prix",
+      "circuit_key": 7,
+      "location": "Spa-Francorchamps",
+      "date": "2026-07-19",
+      "losses": {
+        "green": {
+          "stops": 9,
+          "median_loss": 20.67
+        },
+        "vsc": {
+          "stops": 9,
+          "median_loss": 15.48
+        }
+      }
+    },
+    {
+      "year": 2026,
+      "event": "Hungarian Grand Prix",
+      "circuit_key": 4,
+      "location": "Budapest",
+      "date": "2026-07-26",
+      "losses": {
+        "green": {
+          "stops": 34,
+          "median_loss": 21.56
+        },
+        "vsc": {
+          "stops": 7,
+          "median_loss": 11.1
+        }
+      }
+    },
+    {
+      "year": 2026,
+      "event": "Dutch Grand Prix",
+      "circuit_key": 55,
+      "location": "Zandvoort",
+      "date": "2026-08-23",
+      "losses": {
+        "green": {
+          "stops": 37,
+          "median_loss": 19.16
+        },
+        "vsc": {
+          "stops": 5,
+          "median_loss": 16.59
+        }
+      }
+    },
+    {
+      "year": 2026,
+      "event": "Italian Grand Prix",
+      "circuit_key": 39,
+      "location": "Monza",
+      "date": "2026-09-06",
+      "losses": {
+        "vsc": {
+          "stops": 7,
+          "median_loss": 16.44
+        }
+      }
+    },
+    {
+      "year": 2026,
+      "event": "Spanish Grand Prix",
+      "circuit_key": 153,
+      "location": "Madrid",
+      "date": "2026-09-13",
+      "losses": {
+        "green": {
+          "stops": 14,
+          "median_loss": 26.5
+        },
+        "vsc": {
+          "stops": 10,
+          "median_loss": 11.11
+        }
+      }
+    },
+    {
+      "year": 2026,
+      "event": "Azerbaijan Grand Prix",
+      "circuit_key": 144,
+      "location": "Baku",
+      "date": "2026-09-26",
+      "losses": {
+        "sc": {
+          "stops": 11,
+          "median_loss": 17.98
+        }
+      }
+    },
+    {
+      "year": 2026,
+      "event": "Bahrain Grand Prix",
+      "circuit_key": 12,
+      "location": "Kuala Lumpur",
+      "date": "2026-10-04",
+      "losses": {
+        "green": {
+          "stops": 24,
+          "median_loss": 26.27
+        },
+        "sc": {
+          "stops": 11,
+          "median_loss": 23.05
+        },
+        "vsc": {
+          "stops": 6,
+          "median_loss": 20.94
+        }
+      }
+    }
+  ]
+}
