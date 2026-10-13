@@ -142,6 +142,7 @@ async def stream_websocket(ws: WebSocket, positions):
 class Control(BaseModel):
     action: str
     speed: int | None = None
+    position: float | None = None
 
 
 @app.post('/api/replay/control')
@@ -149,7 +150,7 @@ async def control(body: Control):
     if app.state.replay is None:
         raise HTTPException(409, 'Replay controls are unavailable in live mode')
     try:
-        app.state.replay.control(body.action, body.speed)
+        app.state.replay.control(body.action, body.speed, body.position)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     return app.state.timing.snapshot()

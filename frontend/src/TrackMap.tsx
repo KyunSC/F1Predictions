@@ -4,12 +4,12 @@ import {aligned,transform,type Stream} from './positions'
 import {atDistance,circuit,Projector,projectedMarker,placeLabels,labelOffsets,type LabelOffset} from './projection'
 import {ghostDistance,lapSeconds,rejoinSummary,travelDirection} from './pitRejoin'
 type Geometry={session_identity:string;available:boolean;reason:string;outline:[number,number][];rotation:number;attribution:string;provenance:string;synthetic:boolean;pending?:boolean}
-export function TrackMap({stream,online,time,drivers,selected,select,reset,pitLoss}:{stream?:Stream;online:boolean;time:number;drivers:Driver[];selected:string|null;select:(n:string)=>void;reset:()=>void;pitLoss?:number|null}){
+export function TrackMap({stream,online,time,drivers,selected,select,pitLoss}:{stream?:Stream;online:boolean;time:number;drivers:Driver[];selected:string|null;select:(n:string)=>void;pitLoss?:number|null}){
  const [geometry,setGeometry]=useState<Geometry|null>(null),[error,setError]=useState(''),[reduced,setReduced]=useState(false)
  const svg=useRef<SVGSVGElement>(null),offsets=useRef(new Map<string,LabelOffset>()),[viewport,setViewport]=useState({width:700,height:340})
  const identity=stream?.session_identity
  useEffect(()=>{const query=matchMedia('(prefers-reduced-motion: reduce)');const update=()=>setReduced(query.matches);update();query.addEventListener('change',update);return()=>query.removeEventListener('change',update)},[])
- useEffect(()=>{reset();offsets.current=new Map();setGeometry(null);setError('');if(!identity)return;const controller=new AbortController();let retry:ReturnType<typeof setTimeout>|undefined
+ useEffect(()=>{offsets.current=new Map();setGeometry(null);setError('');if(!identity)return;const controller=new AbortController();let retry:ReturnType<typeof setTimeout>|undefined
  // A pending outline is being traced from car coordinates; ask again until it is ready.
  const load=()=>fetch('/api/track-map',{signal:controller.signal}).then(r=>{if(!r.ok)throw Error('Geometry request failed');return r.json()}).then(g=>{if(controller.signal.aborted)return;if(g.session_identity===identity){setGeometry(g);if(g.pending)retry=setTimeout(load,3000)}else setError('Session changed; waiting for geometry')}).catch(e=>{if(e.name!=='AbortError')setError(String(e))})
  load();return()=>{controller.abort();clearTimeout(retry)}},[identity])

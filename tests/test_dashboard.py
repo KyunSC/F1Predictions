@@ -129,6 +129,38 @@ class DashboardTests(unittest.TestCase):
             self.assertFalse(state.replay['ended'])
             with self.assertRaises(ValueError): replay.control('speed',3)
 
+    def test_replay_seek_rebuilds_state_at_position(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'test.jsonl'
+            path.write_text('\n'.join(json.dumps(dict(at=t,topic='LapCount',data={'CurrentLap':lap})) for t,lap in [(100,1),(105,2),(110,3)]))
+            state=State(); replay=Replay(state,path); replay.control('pause')
+            generation=state.positions.generation
+            replay.control('seek',position=7); self.assertEqual((replay.position,state.snapshot()['laps']['CurrentLap']),(7,2))
+            self.assertGreater(state.positions.generation,generation)
+            self.assertTrue(state.replay['paused'])
+            replay.control('seek',position=99); self.assertTrue(state.replay['ended'])
+            replay.control('seek',position=1); self.assertEqual(state.snapshot()['laps']['CurrentLap'],1)
+            self.assertFalse(state.replay['ended'])
+            replay.control('seek',position=-5); self.assertEqual(replay.position,0)
+            for bad in (None,float('nan'),float('inf')):
+                with self.assertRaises(ValueError): replay.control('seek',position=bad)
+
+    def test_replay_seek_keeps_the_frames_normal_playback_would_show(self):
+        frames=lambda state:[(f['presentation_timestamp'],f['laps']) for f in state.timing_history]
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'dense.jsonl'
+            path.write_text('\n'.join(json.dumps(dict(at=t,topic='LapCount',data={'CurrentLap':t})) for t in range(61)))
+            played=State(); replay=Replay(played,path)
+            for _ in range(50): replay.advance(1)
+            jumped=State(); Replay(jumped,path).control('seek',position=50)
+            self.assertEqual(frames(jumped),frames(played))
+            self.assertEqual(frames(jumped)[0][0],44)
+            path=Path(tmp)/'sparse.jsonl'
+            path.write_text('\n'.join(json.dumps(dict(at=t,topic=topic,data=data)) for t,topic,data in
+                [(0,'LapCount',{'CurrentLap':1}),(10,'LapCount',{'CurrentLap':2}),(48,'Position.z','x'),(100,'LapCount',{'CurrentLap':3})]))
+            state=State(); Replay(state,path).control('seek',position=50)
+            self.assertEqual(frames(state),[(10,{'CurrentLap':2})])
+
     def test_archive_replay_opens_at_lights_out(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'archive.jsonl'
@@ -258,6 +290,8 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(client.post('/api/replay/control',json={'action':'pause'}).status_code,200)
             self.assertTrue(client.get('/api/state').json()['replay']['paused'])
             self.assertEqual(client.post('/api/replay/control',json={'action':'speed','speed':3}).status_code,422)
+            self.assertEqual(client.post('/api/replay/control',json={'action':'seek','position':3}).json()['replay']['position'],3)
+            self.assertEqual(client.post('/api/replay/control',json={'action':'seek'}).status_code,422)
             with client.websocket_connect('/ws') as ws:
                 self.assertIn('drivers',ws.receive_json())
 

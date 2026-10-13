@@ -4,20 +4,25 @@ import copy
 import json
 from datetime import datetime, timezone
 
+HISTORY_SECONDS = 5  # timing frames kept behind the newest one
 TOPICS = ['SessionInfo', 'SessionStatus', 'DriverList', 'TimingData', 'TimingAppData',
           'TrackStatus', 'WeatherData', 'RaceControlMessages', 'LapCount', 'ChampionshipPrediction', 'Position.z']
 
 
 def merge(base, patch):
-    """SignalR objects are sparse patches; numeric keys also patch arrays."""
+    """SignalR objects are sparse patches; numeric keys also patch arrays.
+
+    Copy-on-write: only dicts on the patch path are copied and untouched subtrees are
+    shared. No stored dict is mutated afterwards, so earlier timing frames stay intact
+    and replaying a whole recording stays linear in its size."""
     if isinstance(patch, list):
         patch = {str(i): value for i, value in enumerate(patch)}
     if isinstance(patch, dict):
-        result = copy.deepcopy(base) if isinstance(base, dict) and not patch.get('_kf') else {}
+        result = dict(base) if isinstance(base, dict) and not patch.get('_kf') else {}
         for key, value in patch.items():
             result[str(key)] = merge(result.get(str(key)), value)
         return result
-    return copy.deepcopy(patch)
+    return patch
 
 
 def venue(value):
@@ -108,7 +113,7 @@ class State:
         self.last_update = None
         self.source_timestamp = None
 
-    def apply(self, topic, payload, timestamp=None, now=None):
+    def apply(self, topic, payload, timestamp=None, now=None, record=True):
         if topic == 'Position.z':
             self.positions.apply(payload, now if now is not None else datetime.now(timezone.utc).timestamp())
             return
@@ -123,12 +128,19 @@ class State:
         self.topics[topic] = merge(self.topics.get(topic), payload)
         self.last_update = now if now is not None else datetime.now(timezone.utc).timestamp()
         self.source_timestamp = timestamp
+        if record:  # replay fast-forward skips frames that would be trimmed unseen
+            self.record()
+
+    def record(self):
+        """Append the current timing state as a frame at its last update time."""
+        if self.last_update is None:
+            return
         # Keep the predecessor as well as recent changes: a quiet timing topic
         # must still have a state at the shared buffered presentation moment.
         frame = self.snapshot(now=self.last_update)
         frame['presentation_timestamp'] = self.last_update
         self.timing_history.append(frame)
-        cutoff = self.last_update - 5
+        cutoff = self.last_update - HISTORY_SECONDS
         while len(self.timing_history) > 1 and self.timing_history[1]['presentation_timestamp'] < cutoff:
             self.timing_history.pop(0)
 

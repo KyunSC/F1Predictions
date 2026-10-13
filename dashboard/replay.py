@@ -1,5 +1,8 @@
 import json
+import math
 from pathlib import Path
+
+from .state import HISTORY_SECONDS
 
 
 class Replay:
@@ -31,7 +34,7 @@ class Replay:
         self.state.replay = dict(label=self.label, paused=self.paused, speed=self.speed,
             position=self.position, duration=self.events[-1]['at'], ended=self.index == len(self.events))
 
-    def control(self, action, speed=None):
+    def control(self, action, speed=None, position=None):
         if action == 'restart':
             self.state.reset()
             self.position = 0.
@@ -41,7 +44,12 @@ class Replay:
         elif action == 'pause': self.paused = True
         elif action == 'resume': self.paused = False
         elif action == 'speed' and speed in (1, 2, 5): self.speed = speed
-        else: raise ValueError('Use pause, resume, restart or speed (1, 2, 5)')
+        elif action == 'seek' and isinstance(position, (int, float)) and math.isfinite(position):
+            # Rebuild from the start, as restart does, so every jump starts a fresh presentation generation.
+            self.state.reset()
+            self.index = 0
+            self.seek(min(max(float(position), 0.), self.events[-1]['at']))
+        else: raise ValueError('Use pause, resume, restart, speed (1, 2, 5) or seek (seconds)')
         self.advance(0)
 
     def advance(self, elapsed):
@@ -50,9 +58,21 @@ class Replay:
         self.publish()
 
     def seek(self, position):
-        """Move forward to `position`, applying every event up to it in order."""
+        """Move forward to `position`, applying every event up to it in order.
+
+        Events older than the timing history window are applied without frames, which
+        would be trimmed unseen; their combined state is recorded once as the predecessor."""
         self.position = position
+        cutoff = position - HISTORY_SECONDS
+        pending = False
         while self.index < len(self.events) and self.events[self.index]['at'] <= self.position:
             e = self.events[self.index]
-            self.state.apply(e['topic'], e['data'], e.get('timestamp'), now=e['at'])
+            recent = e['at'] >= cutoff
+            if pending and recent:
+                self.state.record()
+                pending = False
+            self.state.apply(e['topic'], e['data'], e.get('timestamp'), now=e['at'], record=recent)
+            pending = pending or not recent
             self.index += 1
+        if pending:
+            self.state.record()

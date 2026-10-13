@@ -21,8 +21,8 @@ beforeEach(()=>{
  vi.stubGlobal('matchMedia',()=>({matches:true,addEventListener:vi.fn(),removeEventListener:vi.fn()}))
  vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({session_identity:'demo',available:true,outline:[[0,0],[2,1],[0,2]],rotation:0,synthetic:true,attribution:'Synthetic demo'})}))
 })
-afterEach(()=>{cleanup();vi.unstubAllGlobals()})
-it('links keyboard marker selection and tower selection, clearing on restart',async()=>{
+afterEach(()=>{cleanup();vi.unstubAllGlobals();localStorage.clear()})
+it('links keyboard marker selection and tower selection, keeping it across restart and reload',async()=>{
  render(<App/>);const positions=Socket.sockets.find(s=>s.url.endsWith('/ws/positions'))!
  const snapshot={session_identity:'demo',generation:1,presentation_timestamp:0,session:{},drivers:[{number:'44',name:'Lewis Hamilton',code:'HAM',color:'ff0000'}],predictions:[],messages:[],track:{},weather:{},laps:{},connection:{},replay}
  act(()=>positions.emit({...stream,current:snapshot,timing_history:[snapshot]}))
@@ -31,9 +31,32 @@ it('links keyboard marker selection and tower selection, clearing on restart',as
  expect(screen.getByRole('button',{name:'HAM'}).getAttribute('aria-pressed')).toBe('true')
  expect(marker.getAttribute('aria-pressed')).toBe('true')
  act(()=>positions.emit({...stream,session_identity:'restart',generation:2,current:snapshot,timing_history:[{...snapshot,session_identity:'restart',generation:2}]}))
- await waitFor(()=>expect(screen.getByRole('button',{name:'HAM'}).getAttribute('aria-pressed')).toBe('false'))
- fireEvent.click(screen.getByRole('button',{name:'HAM'}))
+ await waitFor(()=>expect(screen.getByRole('button',{name:'HAM'}).getAttribute('aria-pressed')).toBe('true'))
  expect(screen.getByText(/Lewis Hamilton · P/)).toBeTruthy()
+ cleanup();render(<App/>);const reloaded=Socket.sockets.filter(s=>s.url.endsWith('/ws/positions')).at(-1)!
+ act(()=>reloaded.emit({...stream,current:snapshot,timing_history:[snapshot]}))
+ await waitFor(()=>expect(screen.getByRole('button',{name:'HAM'}).getAttribute('aria-pressed')).toBe('true'))
+ // A stored car that is not in this session is not shown as selected.
+ cleanup();localStorage.setItem('pitwall.selected','99');render(<App/>)
+ act(()=>Socket.sockets.filter(s=>s.url.endsWith('/ws/positions')).at(-1)!.emit({...stream,current:snapshot,timing_history:[snapshot]}))
+ await waitFor(()=>expect(screen.getByRole('button',{name:'HAM'}).getAttribute('aria-pressed')).toBe('false'))
+ expect(screen.getByText('Select a car or a driver in the timing tower.')).toBeTruthy()
+})
+it('drives the replay from the keyboard and the seek bar',async()=>{
+ render(<App/>);const positions=Socket.sockets.find(s=>s.url.endsWith('/ws/positions'))!
+ const snapshot={session_identity:'demo',generation:1,presentation_timestamp:0,session:{},drivers:[],predictions:[],messages:[],track:{},weather:{},laps:{},connection:{},replay}
+ act(()=>positions.emit({...stream,current:snapshot,timing_history:[snapshot]}));await screen.findByRole('button',{name:'Select 44'})
+ const fetch=globalThis.fetch as ReturnType<typeof vi.fn>
+ const posted=()=>fetch.mock.calls.filter(([url])=>url==='/api/replay/control').map(([,init])=>JSON.parse(init.body))
+ await act(async()=>{fireEvent.keyDown(document.body,{key:' '})});expect(posted().at(-1)).toEqual({action:'resume'})
+ await act(async()=>{fireEvent.keyDown(document.body,{key:'5'})});expect(posted().at(-1)).toEqual({action:'speed',speed:5})
+ const count=posted().length
+ await act(async()=>{fireEvent.keyDown(document.body,{key:'r',metaKey:true})})
+ await act(async()=>{fireEvent.keyDown(screen.getByRole('button',{name:'Select 44'}),{key:' '})})
+ expect(posted().length).toBe(count)
+ const bar=screen.getByRole('slider',{name:'Seek replay'})
+ fireEvent.change(bar,{target:{value:'60'}});await act(async()=>{fireEvent.pointerUp(bar)})
+ expect(posted().at(-1)).toEqual({action:'seek',position:60})
 })
 it('exposes disconnect and recovers from a new socket without losing the map',async()=>{
  render(<App/>);const positions=Socket.sockets.find(s=>s.url.endsWith('/ws/positions'))!

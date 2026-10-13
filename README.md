@@ -386,6 +386,13 @@ export is shown only during the sprint, not Sunday's Grand Prix. Exports without
 recognized as the same venue. Drivers are
 matched by racing number, never name. Pace rank is distinct from finishing position.
 
+Each prediction row also shows where that car is running now against its pace rank
+(`P3 ▲2`: running third, two places ahead of pace rank 5; `OUT` once retired). When a
+replay reaches its end, a **How the prediction did** card compares the pace ranking with
+the final classification: Spearman correlation and podium overlap over the drivers
+classified in both, and whether the predicted fastest driver won. These are display
+only; they never feed or refit the model, and one race says little about the model.
+
 ### If pitted now
 
 The timing tower's **IF PIT** column answers "if this driver pitted now, where would they
@@ -447,6 +454,16 @@ was subscribed have no championship data and say so. Re-import them with
 `dashboard.historical`, or delete the `dashboard/recordings/archive-*.jsonl` file and
 load the session again from **Change session**. This is display only and never feeds the model.
 
+### Timing tower and race control
+
+The overall fastest best lap is highlighted in purple. The race-control panel colours
+messages by importance: red for safety cars, red and chequered flags, and penalties;
+amber for yellow and black-and-white flags, incidents, investigations and marshals on
+track; everything else (blue flags, deleted lap times, track clear, steward decisions with
+no further action) is routine. **Important only** hides the routine messages; that choice
+is remembered in the browser. The browser tab title shows the lap, the leader and any
+SC, VSC, yellow or red flag, e.g. `L23/62 · VER leads · SC · Pitwall`.
+
 ### Recordings and controls
 
 Live mode writes received subscribed messages to ignored timestamped JSONL files
@@ -483,7 +500,12 @@ returns to the picked session. An import error leaves the current replay running
 choice is not persisted across restarts. Predictions stay hidden on any session other
 than the predicted one. Reconstructed archive recordings open at lights out (the
 first `SessionStatus` `Started`) with all earlier timing already applied, and
-Restart returns there. The progress bar stays on the recording clock. Pause/resume, restart and 1×/2×/5× speed controls apply to all connected tabs.
+Restart returns there. The progress bar stays on the recording clock; click or drag it
+(or focus it and use the arrow keys) to jump to any point. A jump rebuilds the timing
+state from the start of the recording up to that point, as Restart does. Keyboard
+shortcuts: **Space** pauses or resumes, **R** restarts, **1**/**2**/**5** set the speed
+(ignored while a control has focus). Pause/resume, restart, seek and 1×/2×/5× speed
+controls apply to all connected tabs.
 At the end, use Restart to play again. The browser picks archive sessions by
 year and numeric session key only; it cannot select arbitrary filesystem paths.
 
@@ -499,7 +521,9 @@ year and numeric session key only; it cannot select arbitrary filesystem paths.
   seconds (receipt time live; recording offsets during replay). Both WebSockets use
   the same localhost origin restrictions and one shared upstream connection.
 - `POST /api/replay/control`: `{"action":"pause"}`, `{"action":"resume"}`,
-  `{"action":"restart"}`, or `{"action":"speed","speed":2}`. Returns 409 in live mode.
+  `{"action":"restart"}`, `{"action":"speed","speed":2}`, or
+  `{"action":"seek","position":1800}` (recording seconds, clamped to the recording).
+  Returns 409 in live mode.
 - `GET /api/archive?year=2026`: `years` (2018 to the current year), `year`, and
   `events` in index order, each with `sessions` (`key`, `name`, `type`, `start_utc`,
   `available`, `cached`). 422 for an out-of-range year; 502 if the index can't be
@@ -561,7 +585,9 @@ The display runs one presentation-second behind receipt time and interpolates on
 between measured samples no more than two seconds apart. It never extrapolates.
 Markers become stale after five seconds and disappear after fifteen. Reduced motion
 holds actual samples without interpolation. Disconnect, pause and replay end freeze
-the display; restart clears selection and buffers. Replay speeds share the timing
+the display; restart and seeking clear the buffers. The selected driver is remembered
+in the browser (`localStorage`) across restarts, reloads and session changes, and is
+highlighted only while that car is in the session. Replay speeds share the timing
 clock and never reveal future recording events.
 
 The bundled demo includes deterministic synthetic compressed coordinates and a
