@@ -5,8 +5,10 @@ from the same season. The notebook defaults to the **2026 Singapore Sprint at Ma
 Bay (October 10)**; set `TARGET_KIND = "race"` to predict a Grand Prix instead. Its main
 output is a pace ranking. A CatBoost finishing-order
 ranker is also validated, and its order is shown only if it beats simple baselines.
-A podium section compares nine models, including logistic, tree and Monte Carlo
-probabilities, on the same walk-forward folds.
+A podium section compares 24 orderings and probability models (rankers, ratings,
+classifiers, two race simulations and ensembles), a retirement section compares two
+retirement models, and a pace section compares 16 pace models, all on the same
+walk-forward folds.
 
 ## Run
 
@@ -95,7 +97,7 @@ the qualifying position (sprint qualifying for a sprint). Set `TARGET_GRID` (e.g
 
 ### Podium comparison
 
-Nine models are compared on podium prediction. Each gives one score per driver, and its
+Twenty-four models are compared on podium prediction. Each gives one score per driver, and its
 predicted podium is the top three by that score; probabilistic models are ranked by
 P(podium). Settings were fixed in the configuration cell before any held-out result was
 inspected and were not tuned on the held-out races.
@@ -109,10 +111,80 @@ inspected and were not tuned on the held-out races.
 | Shallow tree | `HistGradientBoostingClassifier` (`max_depth=3`, 100 iterations, `min_samples_leaf=20`) for P(top 3) |
 | Simulation | 10,000 simulated runs per race. Ridge pace plus noise resampled from the fold's training residuals. Each driver retires with chance `(rate * n + 5 * field) / (n + 5)`, from their `PriorNotClassifiedRate` over `n` earlier races and the field's rate. Retirements are classified behind all finishers. Gives P(win), P(podium) and expected position |
 | Grid-slot rate | Historical P(podium \| grid slot) from earlier races, Gaussian-kernel smoothed (bandwidth 1.5 slots, 2 pseudo-observations at the pooled rate) |
+| PairLogit | The CatBoost ranker with CatBoost's pairwise `PairLogit` objective, the objective behind XGBoost's `rank:pairwise` |
+| Plackett-Luce | Linear model of the whole classification as successive choices (winner from the field, second from the rest, ...), L2 penalty 1. Retirements are never chosen but stay in every choice set. P(win) is exact; P(podium) is sampled from 10,000 orders |
+| Bradley-Terry | Logistic regression (`C=1`, no intercept) on feature differences, one comparison per pair of drivers in a race (pairs of two retirements excluded) |
+| Elo, Glicko-2, TrueSkill | Driver ratings updated race by race from earlier classifications only, each race a game against every other starter: multiplayer Elo (`K=32` shared across opponents), Glicko-2 (one rating period per race, `tau=0.5`) and TrueSkill (the `trueskill` package, no draws). No qualifying input |
+| Ordinal logit | Cumulative-logit model of finishing position (statsmodels `OrderedModel`; positions past 20 pooled), giving P(win) and P(top 3) |
+| Random forest | 300 trees, leaves of at least 5 rows, for P(top 3) |
+| CatBoost classifier | Depth-3 CatBoost (300 iterations, `l2_leaf_reg=10`) for P(top 3) |
+| MLP | One hidden layer of 16 units, `alpha=1`, for P(top 3) |
+| Logistic + isotonic, Shallow tree + isotonic | The logistic and tree models recalibrated by isotonic regression on out-of-fold predictions from four race-grouped folds inside the training pool |
+| Lap simulation | 2,000 lap-by-lap races (below) |
+| Rank average | Mean rank over the 22 non-ensemble methods |
+| Probability average | Mean P(podium) over the 12 other probabilistic models |
 
-P(win) is reported for the simulation and grid-slot rate only: the logistic regression and
-tree are trained on the top-3 label, and a win classifier would have about one positive per
-race to learn from.
+P(win) is reported for the two simulations, the grid-slot rate, Plackett-Luce and the ordinal
+model. The other classifiers are trained on the top-3 label, and a win classifier would have
+about one positive per race to learn from.
+
+**Lap simulation.** Each run starts from the Ridge pace plus a residual resampled from the
+fold's training residuals, as in the simulation above, and steps through the race lap by lap
+in pace-ratio units (the field's median lap = 1). Each lap adds noise (0.004), tyre wear
+(`DegPerLap` times tyre age) and, on a stop lap, the pit loss with fresh tyres. Stops fall
+within 15% of race distance of an even split. Cars start 0.003 apart per grid slot. A car that
+catches the one ahead passes only if it would be 0.005 clear; otherwise it is held 0.004
+behind. A safety car starts on any lap with chance `SCPerLap` and bunches the field 0.01 apart
+for 4 laps. Lap count, pit loss, stops per driver, wear and safety-car rate are medians over
+earlier sessions of the same kind (sprint or Grand Prix), measured from those sessions' laps:
+pit loss is the in-lap plus out-lap against twice the driver's green-flag median, wear is the
+within-stint slope of lap time on tyre age (fuel burn included, so it can be negative), and
+safety-car rate counts SC and VSC deployments per lap. Retirements come from the hazard model
+and are classified last, by laps completed. These inputs are measured only for training
+sessions; the target session is never loaded.
+
+**Retirement models.** The simulation's shrunk rate counts a retirement per race. The hazard
+model counts distance: a classified driver covers the session, a retirement the share of laps
+it completed, and a sprint counts for a third of a Grand Prix. Each team's retirement rate per
+Grand Prix distance is pulled toward the field's, and each driver's toward their team's, with
+five Grand Prix distances of pseudo-exposure at each step; the rate is then scaled to the
+session's distance. Both are scored on P(not classified) with the Brier score and log loss.
+
+### Pace model comparison
+
+Sixteen pace models are scored on the same folds and rows as the Ridge validation, which the
+`Ridge` row reproduces exactly (the notebook checks this):
+
+| Model | Description |
+|---|---|
+| Ridge | The pace model (`alpha=10`) |
+| Lasso, ElasticNet | L1 and mixed penalties; strength (and ElasticNet's mix of 0.1, 0.5 or 0.9) chosen by four race-grouped folds inside the training pool |
+| Bayesian ridge | Penalty and noise estimated from the data; gives an 80% predictive interval |
+| Quantile | Linear median regression; the 10th and 90th percentile fits give the interval |
+| Mixed effects | The same features plus random intercepts per driver and per team. Variances by REML (statsmodels `MixedLM`), then the fixed effects and shrunken driver and team effects from Henderson's mixed-model equations; unseen drivers and teams get zero |
+| Ridge + EWM form | `PriorPace` replaced by an exponentially weighted mean of earlier pace ratios (half-life three sessions) |
+| Ridge + Kalman form | `PriorPace` replaced by a one-step-ahead Kalman forecast: a local-level model with drift 0.002 per session, observation noise 0.006 and a prior of 1.000 ± 0.01 |
+| Kalman form only | That forecast alone, with no qualifying input |
+| Random forest | 300 trees, leaves of at least 5 rows |
+| Gradient boosting | `HistGradientBoostingRegressor` with the shallow-tree settings |
+| CatBoost | Depth-3 CatBoost regressor (300 iterations, `l2_leaf_reg=10`) |
+| Gaussian process | RBF kernel with one length scale per feature plus a white-noise term, fitted by marginal likelihood; gives an 80% interval |
+| MLP | One hidden layer of 16 units, `alpha=1`, standardised target |
+| Mean of models | The mean of the fourteen models above |
+| Stacked | Non-negative weights on Ridge, mixed effects, random forest, gradient boosting and the Gaussian process, fitted on out-of-fold predictions from four race-grouped folds inside the training pool |
+
+Not included: sequence networks (LSTM, transformers) and a full Bayesian hierarchical model
+(PyMC or Stan). With about 20 sessions per driver and a few hundred rows, a sequence network
+has far more parameters than data, and the mixed-effects model already gives the partial
+pooling a Bayesian hierarchy would. XGBoost and LightGBM need the OpenMP runtime on macOS
+(`brew install libomp`), which this environment does not have; their tree boosting is covered
+by the CatBoost and histogram-boosting models, and XGBoost's pairwise objective by `PairLogit`.
+LambdaMART is missing. CatBoost's `LambdaMart` objective was in the first run and put none of
+the 51 podium places in its top three. Checked on training data only, it did not fit its own
+training races (training NDCG at the level of the reversed order), and the direction of the
+order it learned flipped with CatBoost's leaf-estimation method. That is a fitting failure in
+catboost 1.2.10, so it was removed rather than re-tuned on held-out results. LightGBM's
+`lambdarank` would be the replacement once `libomp` is installed.
 
 Training rows and targets stay within 2026, so the model does not assume that an
 earlier season's competitive order carries across the regulation change. Earlier seasons
@@ -212,35 +284,97 @@ probabilities are clipped to [0.001, 0.999] for log loss.
 | Grid order | 0.647 | **0.647** | 0.000 | | | -0.020 [-0.059, 0.000] |
 | Qualifying order | 0.627 | **0.647** | 0.000 | | | -0.039 [-0.098, 0.000] |
 | Prior finish | 0.451 | 0.118 | 0.000 | | | -0.216 [-0.294, -0.137] (worse) |
-| Ridge pace | **0.667** | **0.647** | **0.059** | | | reference |
+| Ridge pace | 0.667 | **0.647** | 0.059 | | | reference |
 | CatBoost | 0.569 | 0.471 | 0.000 | | | -0.098 [-0.196, -0.000] (worse) |
 | Logistic | 0.627 | 0.588 | 0.000 | 0.067 | 0.214 | -0.039 [-0.118, 0.039] |
-| Shallow tree | 0.588 | 0.529 | **0.059** | 0.078 | 0.238 | -0.078 [-0.157, 0.000] |
-| Simulation | 0.647 | 0.529 | **0.059** | **0.066** | **0.201** | -0.020 [-0.059, 0.000] |
-| Grid-slot rate | 0.647 | **0.647** | 0.000 | **0.066** | 0.212 | -0.020 [-0.059, 0.000] |
+| Shallow tree | 0.588 | 0.529 | 0.059 | 0.078 | 0.238 | -0.078 [-0.157, 0.000] |
+| Simulation | 0.647 | 0.529 | 0.059 | 0.066 | 0.201 | -0.020 [-0.059, 0.000] |
+| Grid-slot rate | 0.647 | **0.647** | 0.000 | 0.066 | 0.212 | -0.020 [-0.059, 0.000] |
+| PairLogit | 0.569 | 0.588 | 0.000 | | | -0.098 [-0.196, 0.020] |
+| Plackett-Luce | 0.647 | 0.529 | 0.059 | 0.085 | 0.273 | -0.020 [-0.078, 0.039] |
+| Bradley-Terry | 0.647 | **0.647** | 0.059 | | | -0.020 [-0.078, 0.039] |
+| Elo | 0.451 | 0.235 | 0.000 | | | -0.216 [-0.353, -0.078] (worse) |
+| Glicko-2 | 0.471 | 0.176 | 0.000 | | | -0.196 [-0.314, -0.078] (worse) |
+| TrueSkill | 0.490 | 0.353 | 0.000 | | | -0.176 [-0.314, -0.039] (worse) |
+| Ordinal logit | 0.647 | 0.588 | 0.000 | 0.069 | 0.220 | -0.020 [-0.059, 0.000] |
+| Random forest | 0.647 | 0.471 | 0.059 | 0.067 | 0.201 | -0.020 [-0.078, 0.039] |
+| CatBoost classifier | 0.647 | 0.529 | **0.118** | 0.074 | 0.242 | -0.020 [-0.118, 0.078] |
+| MLP | 0.627 | 0.529 | 0.000 | 0.071 | 0.229 | -0.039 [-0.137, 0.059] |
+| Logistic + isotonic | 0.627 | 0.588 | 0.000 | 0.071 | 0.250 | -0.039 [-0.137, 0.059] |
+| Shallow tree + isotonic | 0.608 | 0.588 | 0.059 | 0.079 | 0.255 | -0.059 [-0.137, 0.020] |
+| Lap simulation | 0.627 | 0.588 | 0.000 | **0.064** | **0.198** | -0.039 [-0.098, 0.000] |
+| Rank average | 0.627 | **0.647** | **0.118** | | | -0.039 [-0.098, 0.000] |
+| Probability average | **0.686** | **0.647** | 0.059 | 0.066 | 0.204 | +0.020 [-0.039, 0.098] |
 
 Intervals are paired percentile bootstraps over the 17 sessions (10,000 resamples). A model
 is called better only if its interval excludes zero.
 
-**No model beats the Ridge pace ranking.** Ridge has the highest podium overlap (34 of 51
-places). Prior finish and CatBoost are clearly worse; the other six models are not
-distinguishable from Ridge. Ridge, grid order, qualifying order and the grid-slot rate name the
-winner in 11 of 17 sessions. Among probabilities, Brier scores are 0.066 to 0.078; the only
-interval against the grid-slot rate that excludes zero is the shallow tree's worse Brier score
-(+0.012 [0.001, 0.023]), one of 30 with no multiplicity correction. Calibration bins are
-uneven (2 to 264 driver-races). On the 4 held-out sprints (12 podium places), Ridge pace, grid
-order, qualifying order, the shallow tree, the simulation and the grid-slot rate each got 10 of
-12; that is too few sprints to rank models on. Seventeen sessions cannot separate models that
-differ by a place or two per session, and failing to reject is not evidence of equality. The
+**No model beats the Ridge pace ranking.** Ridge gets 34 of 51 podium places; the probability
+average gets 35, within noise, and fourteen models get 32 or 33. Five are clearly worse: prior
+finish, the CatBoost ranker, and the three rating systems (Elo, Glicko-2, TrueSkill), which use
+only earlier finishing orders and no qualifying. Among probabilities, Brier scores run from
+0.064 (lap simulation) to 0.085 (Plackett-Luce). Against the grid-slot rate, Plackett-Luce is
+worse on Brier and log loss, and the ordinal model, the shallow tree and the recalibrated tree
+are worse on Brier; no model is better. Plackett-Luce spreads probability too evenly (drivers
+it gave 0.35–0.65 made the podium 68% of the time), and isotonic recalibration made the
+logistic and tree probabilities worse rather than better. On the 4 held-out sprints (12
+podium places), twelve models got 10 of 12 and none got more. The comparison draws 69
+intervals against Ridge and 24 against the grid-slot rate with no multiplicity correction, and
+seventeen sessions cannot separate models that differ by a place or two per session. The
 per-session hits, bootstrap table and calibration table are in the notebook.
 
+**Retirement models.** On P(not classified) per driver, the distance-based hazard model and
+the shrunk per-race rate are indistinguishable: Brier 0.1285 vs 0.1281 (difference +0.0003
+[-0.0069, +0.0068]), log loss 0.4215 vs 0.4242 (-0.0026 [-0.0267, +0.0179]). The actual
+non-classification rate was 0.155 per driver; the two models predicted 0.192 and 0.178.
+
+### Pace model comparison results
+
+Same 17 held-out sessions and 368 driver-sessions as the pace validation. MAE is pooled over
+rows; Spearman is the mean per session; differences from Ridge are per-session paired
+bootstraps.
+
+| Model | Pace MAE | Mean Spearman | 80% coverage | MAE diff vs Ridge [95% CI] | Spearman diff vs Ridge [95% CI] |
+|---|---:|---:|---:|---|---|
+| Ridge | 0.006858 | 0.900 | | reference | reference |
+| Lasso | 0.006910 | 0.900 | | +0.000052 [-0.000096, 0.000194] | -0.000 [-0.004, 0.004] |
+| ElasticNet | 0.006892 | 0.901 | | +0.000034 [-0.000117, 0.000181] | +0.001 [-0.002, 0.004] |
+| Bayesian ridge | 0.006854 | 0.901 | 0.910 | -0.000004 [-0.000025, 0.000024] | +0.001 [-0.000, 0.003] |
+| Quantile | **0.006627** | **0.902** | 0.747 | -0.000227 [-0.000359, -0.000103] (better) | +0.002 [-0.006, 0.008] |
+| Mixed effects | 0.007025 | 0.890 | | +0.000172 [-0.000021, 0.000404] | -0.010 [-0.022, -0.002] (worse) |
+| Ridge + EWM form | 0.006910 | 0.900 | | +0.000051 [-0.000029, 0.000142] | -0.000 [-0.003, 0.003] |
+| Ridge + Kalman form | 0.006918 | 0.899 | | +0.000057 [-0.000096, 0.000233] | -0.001 [-0.005, 0.003] |
+| Kalman form only | 0.007816 | 0.856 | | +0.000955 [0.000481, 0.001485] (worse) | -0.045 [-0.068, -0.023] (worse) |
+| Random forest | 0.007084 | 0.900 | | +0.000225 [0.000025, 0.000426] (worse) | -0.000 [-0.011, 0.012] |
+| Gradient boosting | 0.007021 | 0.894 | | +0.000160 [-0.000084, 0.000431] | -0.006 [-0.018, 0.003] |
+| CatBoost | 0.007132 | 0.896 | | +0.000269 [-0.000037, 0.000642] | -0.005 [-0.014, 0.006] |
+| Gaussian process | 0.006983 | 0.896 | 0.872 | +0.000119 [-0.000057, 0.000283] | -0.004 [-0.013, 0.003] |
+| MLP | 0.007402 | 0.868 | | +0.000532 [-0.000022, 0.001287] | -0.033 [-0.091, -0.001] (worse) |
+| Mean of models | 0.006661 | **0.902** | | -0.000198 [-0.000358, -0.000062] (better) | +0.001 [-0.002, 0.005] |
+| Stacked | 0.006847 | 0.901 | | -0.000010 [-0.000122, 0.000116] | +0.000 [-0.008, 0.008] |
+
+**Nothing orders drivers better than Ridge**; mixed effects, the MLP and the Kalman forecast
+alone order them worse. Two models have a lower pace MAE with intervals that exclude zero, the
+median (quantile) regression and the mean of models, both about 3% lower. The median regression
+minimises absolute error, the metric scored, so its gain is partly the choice of loss. EWM and
+Kalman form, which react faster to upgrades, changed nothing measurable. Partial pooling by
+driver and team made ordering slightly worse, and the tree ensembles, Gaussian process and MLP
+are no better and mostly worse on a pool this small. Nominal 80% intervals covered 91%
+(Bayesian ridge), 87% (Gaussian process) and 75% (quantile) of actual pace ratios. On the 4
+held-out sprints, the quantile model's mean Spearman (0.933) is level with sprint qualifying
+order (0.932). The Ridge pace model stays the main prediction: the gains are small, and
+adopting a model because it won this comparison would be selected on the same held-out
+sessions.
+
 Predicted Singapore Sprint podiums (top three, with P(podium) where available): Verstappen,
-Russell, Leclerc from Ridge pace, grid order, qualifying order, the logistic regression
-(0.74, 0.72, 0.52), the shallow tree, the simulation (0.60, 0.60, 0.49) and the grid-slot rate.
-Prior finish has Antonelli second; CatBoost has Piastri third. The simulation splits the win
-almost evenly (P(win) Verstappen 0.25, Russell 0.24, Leclerc 0.16). These probabilities come
-from 17 validation sessions, 4 of them sprints, and model only pace and retirement risk, so
-treat them as rough.
+Russell, Leclerc from Ridge pace, grid order, qualifying order, Bradley-Terry, the rank
+average and every probabilistic model except two. The lap simulation gives 0.72, 0.67 and
+0.50 (P(win) 0.32, 0.26, 0.13); the plain simulation gives 0.60, 0.60 and 0.49 (P(win) 0.25,
+0.24, 0.16). Plackett-Luce has the same three with Russell first (0.35, 0.32, 0.29). PairLogit
+and the CatBoost classifier have Norris third, the CatBoost ranker has Piastri third, and prior
+finish has Antonelli second. Elo, Glicko-2 and TrueSkill, which ignore
+qualifying, put Antonelli first. These probabilities come from 17 validation sessions, 4 of
+them sprints, so treat them as rough.
 
 The saved Singapore Sprint pace prediction contains 22 entrants. Its top five on pace are
 Max Verstappen, George Russell, Charles Leclerc, Oscar Piastri, and Lando Norris. A snapshot
@@ -287,7 +421,15 @@ training only on earlier races, the simulation's residuals coming from earlier r
 every model ignoring the held-out race's outcome columns, valid probabilities with P(win)
 summing to 1 and P(podium) to 3 per simulated race, retirement shrinkage, grid-slot rates,
 agreement with the finishing-order folds, bootstrap intervals, and the case with no
-validation folds.
+validation folds. The model-comparison checks cover race conditions measured from laps
+(and NaN when a column is missing, and for the target), Kalman and EWM form that never see
+the session's own result, Plackett-Luce and Bradley-Terry learning a known order with valid
+probabilities, ordinal probabilities, Elo, Glicko-2 and TrueSkill following results in date
+order, Glickman's published volatility example, the hazard model's distance scaling and
+team shrinkage, the retirement comparison, lap-simulation probabilities, retirements and
+passing, race-grouped inner folds for calibration, the ensembles, every pace model ignoring
+the held-out session's outcome, unseen drivers and teams in the mixed-effects model, and the
+pace comparison reproducing the Ridge validation folds.
 
 ## Data source
 

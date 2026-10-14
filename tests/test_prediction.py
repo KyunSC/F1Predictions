@@ -2,6 +2,7 @@
 import ast
 import json
 import unittest
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -9,42 +10,82 @@ from unittest.mock import patch
 import fastf1
 import numpy as np
 import pandas as pd
-from catboost import CatBoostRanker, Pool
-from sklearn.ensemble import HistGradientBoostingClassifier
+import trueskill
+from catboost import CatBoostClassifier, CatBoostRanker, CatBoostRegressor, Pool
+from scipy.optimize import minimize
+from scipy.stats import norm
+from sklearn.compose import TransformedTargetRegressor
+from sklearn.ensemble import (HistGradientBoostingClassifier, HistGradientBoostingRegressor,
+                              RandomForestClassifier, RandomForestRegressor)
+from sklearn.exceptions import ConvergenceWarning
+from sklearn.feature_selection import VarianceThreshold
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF, ConstantKernel, WhiteKernel
 from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LogisticRegression, Ridge
+from sklearn.isotonic import IsotonicRegression
+from sklearn.linear_model import (BayesianRidge, ElasticNetCV, LassoCV, LinearRegression,
+                                  LogisticRegression, QuantileRegressor, Ridge)
 from sklearn.metrics import mean_absolute_error
+from sklearn.model_selection import GroupKFold
+from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+from statsmodels.miscmodels.ordinal_model import OrderedModel
+from statsmodels.regression.mixed_linear_model import MixedLM
+from statsmodels.tools.sm_exceptions import ConvergenceWarning as SMConvergenceWarning, HessianInversionWarning
 
 NB = json.loads((Path(__file__).resolve().parents[1] / 'f1_race_prediction.ipynb').read_text())
-NS = dict(fastf1=fastf1, np=np, pd=pd, SimpleImputer=SimpleImputer,
-          Ridge=Ridge, make_pipeline=make_pipeline, StandardScaler=StandardScaler,
-          FEATURES=['QualiRatio', 'QualifyingPosition', 'PriorPace'],
-          TARGET_COL='PaceRatio', MIN_TRAIN_RACES=4, QUICKLAP_THRESHOLD=1.07, CatBoostRanker=CatBoostRanker, Pool=Pool,
-          FINISH_FEATURES=['QualiRatio', 'GridPosition', 'PriorFinish'],
-          CATBOOST_PARAMS=dict(loss_function='YetiRank', depth=2, iterations=20, random_seed=0, verbose=False))
-NS['mean_absolute_error'] = mean_absolute_error
-PODIUM_METHODS = ['Grid order', 'Qualifying order', 'Prior finish', 'Ridge pace', 'CatBoost',
-                  'Logistic', 'Shallow tree', 'Simulation', 'Grid-slot rate']
-PROB_METHODS = ['Logistic', 'Shallow tree', 'Simulation', 'Grid-slot rate']
-NS.update(LogisticRegression=LogisticRegression, HistGradientBoostingClassifier=HistGradientBoostingClassifier,
-          N_SIMULATIONS=500, SIM_SEED=0, DNF_PRIOR_RACES=5, LOGIT_C=1.0,
-          TREE_PARAMS=dict(max_depth=2, max_iter=10, min_samples_leaf=2, random_state=0),
-          GRID_BANDWIDTH=1.5, GRID_PRIOR_STRENGTH=2.0, PODIUM_METHODS=PODIUM_METHODS, PROB_METHODS=PROB_METHODS,
-          PROB_CLIP=1e-3, CALIBRATION_BINS=[0.0, 0.05, 0.15, 0.35, 0.65, 1.0], N_BOOTSTRAP=200, BOOTSTRAP_SEED=0)
-# Session and venue tables are read from the notebook's configuration cell, so the tests
-# exercise the configured values rather than a copy.
+NS = dict(fastf1=fastf1, np=np, pd=pd, warnings=warnings, trueskill=trueskill, SimpleImputer=SimpleImputer,
+          Ridge=Ridge, make_pipeline=make_pipeline, StandardScaler=StandardScaler, CatBoostRanker=CatBoostRanker,
+          Pool=Pool, mean_absolute_error=mean_absolute_error, LogisticRegression=LogisticRegression,
+          HistGradientBoostingClassifier=HistGradientBoostingClassifier, CatBoostClassifier=CatBoostClassifier,
+          CatBoostRegressor=CatBoostRegressor, minimize=minimize, norm=norm,
+          TransformedTargetRegressor=TransformedTargetRegressor,
+          HistGradientBoostingRegressor=HistGradientBoostingRegressor, RandomForestClassifier=RandomForestClassifier,
+          RandomForestRegressor=RandomForestRegressor, ConvergenceWarning=ConvergenceWarning,
+          VarianceThreshold=VarianceThreshold, GaussianProcessRegressor=GaussianProcessRegressor, RBF=RBF,
+          ConstantKernel=ConstantKernel, WhiteKernel=WhiteKernel, IsotonicRegression=IsotonicRegression,
+          BayesianRidge=BayesianRidge, ElasticNetCV=ElasticNetCV, LassoCV=LassoCV, LinearRegression=LinearRegression,
+          QuantileRegressor=QuantileRegressor, GroupKFold=GroupKFold, MLPClassifier=MLPClassifier,
+          MLPRegressor=MLPRegressor, OrderedModel=OrderedModel, MixedLM=MixedLM,
+          SMConvergenceWarning=SMConvergenceWarning, HessianInversionWarning=HessianInversionWarning)
+# Every literal setting in the notebook's configuration cell is read from it, so the tests
+# exercise the configured values rather than a copy. Settings that are not literals, and
+# smaller models and simulations for speed, are set below.
 CONFIG = next(c for c in NB['cells'] if c['cell_type'] == 'code' and 'SESSION_CODES' in ''.join(c['source']))
-NS.update({t.targets[0].id: ast.literal_eval(t.value) for t in ast.parse(''.join(CONFIG['source'])).body
-           if isinstance(t, ast.Assign) and isinstance(t.targets[0], ast.Name)
-           and t.targets[0].id in ('SESSION_CODES', 'SCHEDULE_SESSIONS', 'EXPECTED_VENUES',
-                                   'VENUE_HISTORY_SEASONS', 'VENUE_FEATURES', 'VENUE_ALIASES')})
+for statement in ast.parse(''.join(CONFIG['source'])).body:
+    if isinstance(statement, ast.Assign) and isinstance(statement.targets[0], ast.Name):
+        try:
+            NS[statement.targets[0].id] = ast.literal_eval(statement.value)
+        except ValueError:
+            pass
+PODIUM_METHODS = ['Grid order', 'Qualifying order', 'Prior finish', 'Ridge pace', 'CatBoost',
+                  'Logistic', 'Shallow tree', 'Simulation', 'Grid-slot rate',
+                  'PairLogit', 'Plackett-Luce', 'Bradley-Terry', 'Elo', 'Glicko-2', 'TrueSkill',
+                  'Ordinal logit', 'Random forest', 'CatBoost classifier', 'MLP',
+                  'Logistic + isotonic', 'Shallow tree + isotonic', 'Lap simulation',
+                  'Rank average', 'Probability average']
+PROB_METHODS = ['Logistic', 'Shallow tree', 'Simulation', 'Grid-slot rate', 'Plackett-Luce', 'Ordinal logit',
+                'Random forest', 'CatBoost classifier', 'MLP', 'Logistic + isotonic', 'Shallow tree + isotonic',
+                'Lap simulation', 'Probability average']
+NS.update(FEATURES=['QualiRatio', 'QualifyingPosition', 'PriorPace'],
+          EWM_FEATURES=['QualiRatio', 'QualifyingPosition', 'EwmPace'],
+          KALMAN_FEATURES=['QualiRatio', 'QualifyingPosition', 'KalmanPace'],
+          FINISH_FEATURES=['QualiRatio', 'GridPosition', 'PriorFinish'],
+          CATBOOST_PARAMS=dict(loss_function='YetiRank', depth=2, iterations=20, random_seed=0, verbose=False),
+          TREE_PARAMS=dict(max_depth=2, max_iter=10, min_samples_leaf=2, random_state=0),
+          FOREST_PARAMS=dict(n_estimators=20, min_samples_leaf=2, random_state=0),
+          GBM_PARAMS=dict(depth=2, iterations=20, random_seed=0, verbose=False, allow_writing_files=False),
+          MLP_PARAMS=dict(hidden_layer_sizes=(4,), alpha=1.0, solver='lbfgs', max_iter=500, random_state=0),
+          ELO_START=1500.0, ELO_K=32.0, GLICKO_START_RD=350.0, GLICKO_START_VOL=0.06, GLICKO_TAU=0.5,
+          SPRINT_DISTANCE=1 / 3, N_SIMULATIONS=500, N_BOOTSTRAP=200, LAPSIM_SIMULATIONS=300,
+          LAPSIM_DEFAULTS=dict(race=dict(RaceLaps=50, PitLossRatio=0.2, StopsPerDriver=1, DegPerLap=0.0005, SCPerLap=0.02),
+                               sprint=dict(RaceLaps=17, PitLossRatio=0.2, StopsPerDriver=0, DegPerLap=0.0005, SCPerLap=0.02)))
 for cell in NB['cells']:
     if cell['cell_type'] == 'code':
         tree = ast.parse(''.join(cell['source']))
-        functions = [n for n in tree.body if isinstance(n, ast.FunctionDef)]
-        exec(compile(ast.Module(body=functions, type_ignores=[]), '<notebook>', 'exec'), NS)
+        definitions = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))]
+        exec(compile(ast.Module(body=definitions, type_ignores=[]), '<notebook>', 'exec'), NS)
 
 
 def quali_results():
@@ -320,20 +361,38 @@ class PredictionTests(unittest.TestCase):
 
 
 def podium_frame(races=6, drivers=8, seed=0):
-    """Synthetic classified pool: finish order follows grid order plus noise."""
+    """Synthetic classified pool: finish order follows grid order plus noise; every third session is a sprint."""
     rng = np.random.default_rng(seed)
     rows = []
     for race in range(races):
         finish = (np.arange(drivers) + rng.normal(0, 2, drivers)).argsort().argsort() + 1
+        kind, laps = ('sprint', 17) if race % 3 == 2 else ('race', 50)
         for driver in range(drivers):
-            rows.append(dict(RaceId=str(race), Driver=f'D{driver}', RaceIndex=race,
+            retired = bool(finish[driver] > drivers - 1)
+            rows.append(dict(RaceId=str(race), Driver=f'D{driver}', Team=f'T{driver // 2}', Kind=kind, RaceIndex=race,
                 RaceStartUtc=pd.Timestamp('2026-01-01', tz='UTC') + pd.Timedelta(days=race),
                 QualiRatio=1 + driver / 100, QualifyingPosition=driver + 1., GridPosition=driver + 1.,
                 PriorPace=1 + driver / 200, PriorFinish=np.nan if race == 0 else driver + 1.,
                 PriorNotClassifiedRate=np.nan if race == 0 else 0.1,
                 PaceRatio=1 + driver / 200 + rng.normal(0, .002), FinishPosition=float(finish[driver]),
-                NotClassified=bool(finish[driver] > drivers - 1)))
+                NotClassified=retired, LapsCompleted=laps // 2 if retired else laps, RaceLaps=laps,
+                PitLossRatio=0.2, StopsPerDriver=0 if kind == 'sprint' else 1, DegPerLap=0.0004, SCPerLap=0.03))
     return pd.DataFrame(rows)
+
+
+OUTCOME_COLUMNS = ['FinishPosition', 'PaceRatio', 'NotClassified', 'LapsCompleted', 'RaceLaps',
+                   'PitLossRatio', 'StopsPerDriver', 'DegPerLap', 'SCPerLap']
+
+
+def scramble_outcomes(current):
+    """`current` with every outcome column replaced by nonsense."""
+    scrambled = current.copy()
+    scrambled['FinishPosition'] = scrambled.FinishPosition.to_numpy()[::-1]
+    scrambled['PaceRatio'] = scrambled.PaceRatio.to_numpy()[::-1] + .5
+    scrambled['NotClassified'] = ~scrambled.NotClassified
+    for column in OUTCOME_COLUMNS[3:]:
+        scrambled[column] = -99.
+    return scrambled
 
 
 class PodiumTests(unittest.TestCase):
@@ -345,38 +404,47 @@ class PodiumTests(unittest.TestCase):
 
     def test_new_models_fit_only_on_earlier_races(self):
         frame = podium_frame()
-        fits, sim_sizes = [], []
+        fits, sim_sizes, held_out = [], [], []
+        fold = NS['podium_fold']
+        def recording_fold(past, current):
+            held_out.append(current.RaceIndex.min())
+            return fold(past, current)
         def recording(factory):
             class Recorder:
                 def fit(self, x, y):
-                    fits.append((factory.__name__, frame.loc[x.index, 'RaceIndex'].max()))
+                    latest = frame.loc[x.index, 'RaceIndex'].max()
+                    if latest >= held_out[-1]:
+                        raise AssertionError('Held-out or later race in training fold')
+                    fits.append(factory.__name__)
                     self.model = factory().fit(x, y)
                     return self
                 def predict_proba(self, x):
-                    if frame.loc[x.index, 'RaceIndex'].min() <= fits[-1][1]:
-                        raise AssertionError('Future race in training fold')
                     return self.model.predict_proba(x)
             return Recorder
-        simulate = NS['simulate_race']
-        def recording_sim(pace, dnf_prob, residuals, **kwargs):
-            sim_sizes.append(len(residuals))
-            return simulate(pace, dnf_prob, residuals, **kwargs)
-        with patch.dict(NS, make_podium_logit=recording(NS['make_podium_logit']),
-                        make_podium_tree=recording(NS['make_podium_tree']), simulate_race=recording_sim):
+        simulations = {name: NS[name] for name in ('simulate_race', 'simulate_laps')}
+        def recording_sim(name):
+            def run(pace, *args, **kwargs):
+                residuals = args[1] if name == 'simulate_race' else args[2]
+                sim_sizes.append((name, len(residuals)))
+                return simulations[name](pace, *args, **kwargs)
+            return run
+        with patch.dict(NS, podium_fold=recording_fold, make_podium_logit=recording(NS['make_podium_logit']),
+                        make_podium_tree=recording(NS['make_podium_tree']),
+                        simulate_race=recording_sim('simulate_race'), simulate_laps=recording_sim('simulate_laps')):
             walk = NS['validate_podium'](frame)
         self.assertEqual(sorted(walk.RaceId.unique()), ['4', '5'])
-        self.assertEqual(fits, [('make_podium_logit', 3), ('make_podium_tree', 3),
-                                ('make_podium_logit', 4), ('make_podium_tree', 4)])
-        self.assertEqual(sim_sizes, [32, 40])  # residuals come from earlier races only
+        self.assertEqual(held_out, [4, 5])
+        # Per fold: the plain models, then each calibrated model's inner folds and its refit.
+        per_fold = ['make_podium_logit', 'make_podium_tree'] + ['make_podium_logit'] * 5 + ['make_podium_tree'] * 5
+        self.assertEqual(fits, per_fold * 2)
+        # Residuals come from earlier races only.
+        self.assertEqual(sim_sizes, [('simulate_race', 32), ('simulate_laps', 32),
+                                     ('simulate_race', 40), ('simulate_laps', 40)])
 
     def test_models_never_read_current_race_outcomes(self):
         frame = podium_frame()
         past, current = frame[frame.RaceIndex < 5], frame[frame.RaceIndex == 5].copy()
-        scrambled = current.copy()
-        scrambled['FinishPosition'] = scrambled.FinishPosition.to_numpy()[::-1]
-        scrambled['PaceRatio'] = scrambled.PaceRatio.to_numpy()[::-1] + .5
-        scrambled['NotClassified'] = ~scrambled.NotClassified
-        pd.testing.assert_frame_equal(NS['podium_fold'](past, current), NS['podium_fold'](past, scrambled))
+        pd.testing.assert_frame_equal(NS['podium_fold'](past, current), NS['podium_fold'](past, scramble_outcomes(current)))
 
     def test_fold_probabilities_are_valid(self):
         frame = podium_frame()
@@ -440,10 +508,11 @@ class PodiumTests(unittest.TestCase):
         self.assertTrue(walk.empty)
         self.assertTrue(all(t.empty for t in NS['evaluate_podium'](walk)))
 
+    @patch.dict(NS, PODIUM_METHODS=PODIUM_METHODS[:9], PROB_METHODS=PROB_METHODS[:4])
     def test_podium_scores_hits_and_probability_metrics(self):
         walk = podium_frame(races=1, drivers=6)[['RaceId', 'Driver']].copy()
         walk['Actual'] = np.arange(1, 7)
-        for method in PODIUM_METHODS:
+        for method in PODIUM_METHODS[:9]:
             walk[method] = np.arange(1, 7)
         walk['Ridge pace'] = [2, 1, 3, 4, 5, 6]
         walk['Logistic P(podium)'] = [1., 1., 1., 0., 0., 0.]
@@ -476,6 +545,210 @@ class PodiumTests(unittest.TestCase):
         noisy = pd.Series([.5, .5, 1., 0., .5, .5, 0., 1., .5, .5, 1., 0.] * 1 + [.5, .5, 0., 1.], index=index)
         stats = NS['bootstrap_difference'](noisy, 'Other', 'Ridge pace')
         self.assertLess(stats['lo'], 0.); self.assertGreater(stats['hi'], 0.)
+
+
+def pace_frame(races=7, drivers=6, seed=1):
+    """Synthetic labelled pool for the pace-model comparison, with form features built by the notebook."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for race in range(races):
+        for driver in range(drivers):
+            rows.append(dict(RaceId=str(race), Driver=f'D{driver}', Team=f'T{driver // 2}', Kind='race',
+                RaceStartUtc=pd.Timestamp('2026-01-01', tz='UTC') + pd.Timedelta(days=race),
+                QualiRatio=1 + driver / 100 + rng.normal(0, .002), QualifyingPosition=driver + 1.,
+                PaceRatio=1 + driver / 200 + rng.normal(0, .002)))
+    return NS['add_prior_form'](pd.DataFrame(rows))
+
+
+class ModelComparisonTests(unittest.TestCase):
+    def test_race_conditions_from_laps(self):
+        rows = []
+        for driver, base in (('AAA', 100.), ('BBB', 101.)):
+            for lap in range(1, 11):
+                status = '4' if lap in (4, 5) else '1'
+                seconds = base + 0.1 * (lap - 1 if lap <= 6 else lap - 7) + (5. if lap == 1 else 0.)
+                rows.append(dict(Driver=driver, LapNumber=float(lap), Stint=1. if lap <= 6 else 2.,
+                                 TyreLife=float(lap if lap <= 6 else lap - 6), TrackStatus=status,
+                                 LapTime=pd.Timedelta(seconds=seconds + (12. if lap in (6, 7) else 0.)),
+                                 PitInTime=pd.Timedelta(seconds=1) if lap == 6 else pd.NaT,
+                                 PitOutTime=pd.Timedelta(seconds=1) if lap == 7 else pd.NaT))
+        conditions = NS['race_conditions'](pd.DataFrame(rows))
+        self.assertEqual(conditions['RaceLaps'], 10)
+        self.assertEqual(conditions['StopsPerDriver'], 1)
+        self.assertAlmostEqual(conditions['SCPerLap'], 0.1)       # one deployment over laps 4-5
+        self.assertGreater(conditions['DegPerLap'], 0)             # laps get slower on older tyres
+        self.assertGreater(conditions['PitLossRatio'], 0.2)        # 24 s lost on a ~100 s lap
+        self.assertLess(conditions['PitLossRatio'], 0.3)
+        # Columns FastF1 did not supply give NaN rather than an error.
+        bare = NS['race_conditions'](pd.DataFrame(rows)[['Driver', 'LapTime', 'PitInTime', 'PitOutTime']])
+        self.assertTrue(all(np.isnan(v) for v in bare.values()))
+
+    def test_target_frame_has_no_race_conditions(self):
+        session = SimpleNamespace(results=quali_results(), load=lambda **kwargs: None)
+        with patch.object(fastf1, 'get_session', return_value=session):
+            frame = NS['build_race_frame'](2026, 17, False, kind='sprint')
+        for column in OUTCOME_COLUMNS:
+            self.assertTrue(frame[column].isna().all(), column)
+
+    def test_kalman_and_ewm_form_use_only_earlier_sessions(self):
+        forecasts = NS['kalman_forecast']([1.02, np.nan, 1.02, 0.95])
+        self.assertEqual(forecasts[0], 1.0)                       # field median before any session
+        self.assertEqual(forecasts[1], forecasts[2])              # a missing session adds drift only
+        self.assertGreater(forecasts[3], forecasts[1])            # two slow sessions move it further
+        np.testing.assert_array_equal(forecasts[:3], NS['kalman_forecast']([1.02, np.nan, 1.02, 2.0])[:3])
+        frame = pace_frame()
+        changed = frame.copy()
+        last = changed.RaceIndex == changed.RaceIndex.max()
+        changed.loc[last, 'PaceRatio'] = 5.
+        changed = NS['add_prior_form'](changed.drop(columns=['PriorPace', 'EwmPace', 'KalmanPace']))
+        for column in ('PriorPace', 'EwmPace', 'KalmanPace'):
+            np.testing.assert_allclose(changed[column], frame[column], equal_nan=True, err_msg=column)
+        self.assertTrue(frame.loc[frame.RaceIndex == 0, 'EwmPace'].isna().all())
+
+    def test_plackett_luce_and_bradley_terry_learn_the_order(self):
+        frame = podium_frame(races=8)
+        x = frame[['QualiRatio', 'GridPosition']]
+        retired = frame.NotClassified
+        for model in (NS['PlackettLuce']().fit(x, frame.FinishPosition, retired, frame.RaceIndex),
+                      NS['BradleyTerry']().fit(x, frame.FinishPosition, retired, frame.RaceIndex)):
+            scores = model.predict(x.iloc[:8])
+            self.assertGreater(pd.Series(scores).corr(pd.Series(-np.arange(8.)), method='spearman'), 0.9)
+        probabilities = NS['PlackettLuce']().fit(x, frame.FinishPosition, retired, frame.RaceIndex) \
+            .probabilities(x.iloc[:8], n_sims=2000, seed=0)
+        self.assertAlmostEqual(probabilities['P(win)'].sum(), 1.)
+        self.assertAlmostEqual(probabilities['P(podium)'].sum(), 3.)
+        self.assertGreater(probabilities['P(win)'][0], probabilities['P(win)'][7])
+
+    def test_ordinal_logit_probabilities(self):
+        frame = podium_frame(races=8)
+        model = NS['OrdinalLogit']().fit(frame[['QualiRatio', 'GridPosition']], frame.FinishPosition)
+        p = model.probabilities(frame[['QualiRatio', 'GridPosition']].iloc[:8])
+        self.assertTrue(p.stack().between(0, 1).all())
+        self.assertTrue((p['P(win)'] <= p['P(podium)']).all())
+        self.assertGreater(p['P(podium)'][0], p['P(podium)'][7])
+
+    def test_ratings_follow_results_in_date_order(self):
+        rows = []
+        for race in range(4):
+            for driver, place in (('FAST', 1.), ('MID', 2.), ('SLOW', 3.)):
+                rows.append(dict(RaceIndex=race, Driver=driver, FinishPosition=place))
+        past = pd.DataFrame(rows).sample(frac=1, random_state=0)  # row order must not matter
+        for ratings in (NS['elo_ratings'](past), NS['glicko2_ratings'](past), NS['trueskill_ratings'](past)):
+            self.assertGreater(ratings['FAST'], ratings['MID'])
+            self.assertGreater(ratings['MID'], ratings['SLOW'])
+            self.assertNotIn('NEW', ratings)
+        # The comeback counts only if it is the latest race.
+        late = pd.concat([past, pd.DataFrame(dict(RaceIndex=[4] * 3, Driver=['SLOW', 'MID', 'FAST'],
+                                                  FinishPosition=[1., 2., 3.]))])
+        self.assertLess(NS['elo_ratings'](late)['FAST'] - NS['elo_ratings'](late)['SLOW'],
+                        NS['elo_ratings'](past)['FAST'] - NS['elo_ratings'](past)['SLOW'])
+
+    def test_glicko2_volatility_matches_glickman_example(self):
+        # Glickman (2013), "Example of the Glicko-2 system": sigma' = 0.05999.
+        sigma = NS['glicko2_volatility'](phi=1.1513, sigma=0.06, v=1.7785, delta=-0.4834)
+        self.assertAlmostEqual(sigma, 0.05999, delta=1e-5)
+
+    def test_hazard_scales_with_distance_and_shrinks_to_team(self):
+        past = pd.DataFrame(dict(Driver=['A', 'B', 'C', 'D'] * 5, Team=['X', 'X', 'Y', 'Y'] * 5, Kind='race',
+                                 NotClassified=[True, False, False, False] + [False] * 16,
+                                 LapsCompleted=[10, 50, 50, 50] + [50] * 16, RaceLaps=50))
+        race = pd.DataFrame(dict(Driver=['A', 'B', 'C', 'E'], Team=['X', 'X', 'Y', 'Z'], Kind='race'))
+        p = NS['hazard_dnf_probabilities'](past, race)
+        self.assertTrue(((p > 0) & (p < 1)).all())
+        self.assertGreater(p[0], p[1])        # A retired; B shares A's team
+        self.assertGreater(p[1], p[2])        # team X has the retirement
+        sprint = NS['hazard_dnf_probabilities'](past, race.assign(Kind='sprint'))
+        self.assertTrue((sprint < p).all())   # a third of the distance
+        np.testing.assert_allclose(-np.log(1 - sprint), -np.log(1 - p) / 3)
+
+    def test_retirement_validation_scores_both_models(self):
+        table = NS['validate_retirements'](podium_frame())
+        self.assertEqual(sorted(table.index.get_level_values('RaceId').unique()), ['4', '5'])
+        self.assertEqual(set(table.index.get_level_values('Method')), {'Shrunk rate', 'Hazard'})
+        self.assertTrue(NS['validate_retirements'](podium_frame(races=4)).empty)
+
+    def test_race_setup_uses_same_kind_and_defaults(self):
+        frame = podium_frame()
+        self.assertEqual(NS['race_setup'](frame, 'sprint')['RaceLaps'], 17)
+        self.assertEqual(NS['race_setup'](frame, 'race')['StopsPerDriver'], 1)
+        missing = NS['race_setup'](frame.drop(columns=['SCPerLap']).assign(DegPerLap=np.nan), 'race')
+        self.assertEqual(missing['SCPerLap'], NS['LAPSIM_DEFAULTS']['race']['SCPerLap'])
+        self.assertEqual(missing['DegPerLap'], NS['LAPSIM_DEFAULTS']['race']['DegPerLap'])
+
+    def test_lap_simulation_probabilities_and_passing(self):
+        setup = dict(RaceLaps=20, PitLossRatio=0.2, StopsPerDriver=1, DegPerLap=0.0005, SCPerLap=0.05)
+        pace, residuals = [1., 1.001, 1.002, 1.003], np.zeros(10)
+        sim = NS['simulate_laps'](pace, [1, 2, 3, 4], [0.] * 4, residuals, setup, n_sims=400, seed=1)
+        self.assertAlmostEqual(sim['P(win)'].sum(), 1.)
+        self.assertAlmostEqual(sim['P(podium)'].sum(), 3.)
+        self.assertGreater(sim['P(win)'][0], sim['P(win)'][3])
+        pd.testing.assert_frame_equal(sim, NS['simulate_laps'](pace, [1, 2, 3, 4], [0.] * 4, residuals, setup,
+                                                               n_sims=400, seed=1))
+        retiring = NS['simulate_laps'](pace, [1, 2, 3, 4], [1., 0., 0., 0.], residuals, setup, n_sims=200, seed=1)
+        self.assertEqual(retiring['P(podium)'][0], 0.)
+        # Without noise, a slightly faster car starting last cannot clear the pass margin.
+        quiet = dict(setup, StopsPerDriver=0, DegPerLap=0., SCPerLap=0.)
+        with patch.dict(NS, LAPSIM_LAP_NOISE=0.):
+            stuck = NS['simulate_laps']([1.001, 1.], [1, 2], [0., 0.], residuals, quiet, n_sims=50, seed=1)
+            self.assertEqual(stuck['P(win)'].tolist(), [1., 0.])
+            passing = NS['simulate_laps']([1.02, 1.], [1, 2], [0., 0.], residuals, quiet, n_sims=50, seed=1)
+            self.assertEqual(passing['P(win)'].tolist(), [0., 1.])
+        with self.assertRaises(ValueError):
+            NS['simulate_laps']([np.nan, 1.], [1, 2], [0., 0.], residuals, setup, n_sims=10)
+
+    def test_calibrated_classifier_folds_never_split_a_race(self):
+        frame = podium_frame()
+        folds = NS['race_folds'](frame.RaceIndex)
+        self.assertEqual(len(folds), 4)
+        for fit_rows, check_rows in folds:
+            self.assertFalse(set(frame.RaceIndex.iloc[fit_rows]) & set(frame.RaceIndex.iloc[check_rows]))
+        model = NS['RaceCalibrated'](NS['make_podium_logit']).fit(
+            frame[['QualiRatio', 'GridPosition']], (frame.FinishPosition <= 3).astype(int), frame.RaceIndex)
+        p = model.predict_proba(frame[['QualiRatio', 'GridPosition']])
+        self.assertTrue(((p >= 0) & (p <= 1)).all())
+        np.testing.assert_allclose(p.sum(axis=1), 1.)
+
+    def test_fold_ensembles_combine_the_other_methods(self):
+        frame = podium_frame()
+        fold = NS['podium_fold'](frame[frame.RaceIndex < 5], frame[frame.RaceIndex == 5])
+        single = [m for m in PROB_METHODS if m != 'Probability average']
+        np.testing.assert_allclose(fold['Probability average P(podium)'],
+                                   fold[[f'{m} P(podium)' for m in single]].mean(axis=1))
+        for method in PODIUM_METHODS:
+            self.assertEqual(sorted(fold[method]), list(range(1, 9)), method)
+
+    def test_pace_models_never_read_current_outcomes(self):
+        frame = pace_frame()
+        past, current = frame[frame.RaceIndex < 6], frame[frame.RaceIndex == 6]
+        scrambled = current.assign(PaceRatio=current.PaceRatio.to_numpy()[::-1] + .5)
+        fold = NS['pace_model_fold'](past, current)
+        pd.testing.assert_frame_equal(fold, NS['pace_model_fold'](past, scrambled))
+        self.assertEqual([c for c in fold.columns if c in NS['PACE_MODELS']], NS['PACE_MODELS'])
+        self.assertTrue(np.isfinite(fold[NS['PACE_MODELS']].to_numpy()).all())
+        for name in ('Bayesian ridge', 'Quantile', 'Gaussian process'):
+            self.assertTrue((fold[f'{name} low'] <= fold[f'{name} high']).all(), name)
+
+    def test_mixed_effects_handles_unseen_driver_and_team(self):
+        frame = pace_frame()
+        model = NS['make_pace_model']('Mixed effects').fit(frame)
+        rookie = frame.iloc[:2].assign(Driver=['NEW', 'D0'], Team=['NEWTEAM', 'T0'])
+        predictions = model.predict(rookie)
+        self.assertTrue(np.isfinite(predictions).all())
+        self.assertNotEqual(predictions[0], predictions[1])
+
+    def test_pace_comparison_matches_validation_folds(self):
+        frame = pace_frame()
+        walk, _ = NS['validate'](frame, verbose=False)
+        with patch.dict(NS, PACE_MODELS=['Ridge', 'Kalman form only', 'Mean of models']):
+            pace_walk = NS['validate_pace_models'](frame)
+            per_race = NS['pace_model_scores'](pace_walk)
+            summary = NS['pace_model_summary'](pace_walk, per_race)
+            boot = NS['pace_bootstrap'](per_race)
+        self.assertEqual(pace_walk.RaceId.unique().tolist(), walk.RaceId.unique().tolist())
+        np.testing.assert_allclose(pace_walk['Ridge'], walk['Predicted'])
+        self.assertAlmostEqual(summary.loc['Ridge', 'Pace MAE'], mean_absolute_error(walk.Actual, walk.Predicted))
+        self.assertEqual(sorted(boot.Method.unique()), ['Kalman form only', 'Mean of models'])
+        self.assertTrue(NS['validate_pace_models'](pace_frame(races=4)).empty)
 
 
 if __name__ == '__main__': unittest.main()
