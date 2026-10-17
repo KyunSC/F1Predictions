@@ -11,7 +11,7 @@ are untouched.
 |---|---|---|
 | 400px mobile matrix (4 checkpoints × 1/2/5×) | Passed, Oct 9 (`mobile-400.json`) | Passed, Oct 17 (`demo/mobile-400.json`) |
 | 1440px desktop matrix | 5 of 12 runs, Oct 9 (`desktop-1440.json`) | Passed, Oct 17 (`demo/desktop-1440.json`) |
-| Disconnect/reconnect and stale-coordinate faults | Not run | Passed at 1440px and 400px, Oct 17 (`demo/faults.json`) |
+| Disconnect/reconnect and stale-coordinate faults | Not run | Passed at 1440px and 400px, Oct 17 (`demo/faults.json` is the 1440px run; 400px gave identical results) |
 | Keyboard and tower selection, restart keeps selection | Passed (mobile), Oct 9 | Passed at both widths, Oct 17 |
 
 **Still open:** the Suzuka desktop matrix and the Suzuka fault audit. They need
