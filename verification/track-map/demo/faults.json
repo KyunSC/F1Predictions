@@ -1,0 +1,10 @@
+{
+  "disconnectMapFrozen": true,
+  "disconnectTowerFrozen": true,
+  "disconnectVisible": true,
+  "reconnected": true,
+  "staleFaded": true,
+  "staleCount": 6,
+  "hiddenAfter15Seconds": true,
+  "freshCoordinatesReturn": true
+}

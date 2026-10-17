@@ -697,9 +697,19 @@ connection when timestamped timing arrives for a session marked Started.
 
 The SVG map sits above the timing tower. Click a marker or driver button, or focus
 it and press Enter/Space, to select the same driver in both views. Marker colors
-come from DriverList; labels fall back to racing numbers. A shared rotation and
-Y-axis flip preserve aspect ratio and measured coordinates, including OffTrack
-samples. OffTrack does not imply a pit-lane visit. Obvious coordinate-frame
+come from DriverList. Each tag shows the driver code (racing number as fallback);
+official position stays in the timing tower. A shared rotation and Y-axis flip
+preserve aspect ratio. Each measured coordinate, OffTrack and pit-lane samples
+included, is projected onto the nearest point of the outline and drawn at that arc
+length, so markers always sit on the drawn circuit; this is an approximate track
+position, not the raw measurement. Between samples less than two seconds apart a
+car moves along the outline, wrapping across the start/finish line. Where two parts
+of the circuit pass close together, projection penalizes a jump in lap distance
+larger than the car's measured movement, so a car stays on its own branch. Tags
+start just above and right of their dot; one that would overlap another tag or dot
+moves to a nearby free slot with a leader line back to the car, keeps that slot
+while it stays free (to avoid flicker), and a pack too dense for any slot falls back
+to a grid of non-overlapping cells across the map. Obvious coordinate-frame
 mismatches show an unavailable reason; coordinates are never rescaled to fit.
 
 Geometry comes from [MultiViewer](https://api.multiviewer.app), at
@@ -748,9 +758,40 @@ command reports sample counts, driver coverage, source age and geometry availabi
 Offline checks cover parsing, freshness, buffers, reconnect fallback, session resets,
 geometry validation/cache/failures, WebSocket origins, replay and the synthetic demo.
 Frontend tests cover interpolation, coordinate transforms, clocks, stale markers,
-reduced motion and linked selection. Desktop and 400px mobile demo layouts were
-visually inspected. During an accessible position feed, additionally verify actual
-car-to-circuit alignment before relying on the map.
+reduced motion and linked selection. During an accessible position feed, additionally
+verify actual car-to-circuit alignment before relying on the map.
+
+#### Browser acceptance audit
+
+`dashboard.verify_replay` replays a full recording for the production frontend and
+adds checkpoint, fault and result endpoints under `/api/verify/`. Checkpoints are
+absolute recording seconds; each rebuilds state by applying only earlier events.
+It listens on port 8000, where the frontend's rewrites point, so stop
+`npm run dev` first:
+
+```bash
+./.venv/bin/python -m dashboard.verify_replay --recording cache/suzuka-replay.jsonl
+cd frontend && npm run build && npm start
+```
+
+Open http://127.0.0.1:5173 at the viewport to test and run in the console:
+
+```js
+fetch('/api/verify/audit.js').then(r=>r.text()).then(s=>{(0,eval)(s);trackAudit('desktop-1440').then(()=>trackFaultAudit())})
+```
+
+`trackAudit(name, checkpoints)` resumes each checkpoint at 1×, 2× and 5× for three
+seconds and checks every frame: map and tower share one clock, every marker is within
+1px of the drawn outline, no lap-distance jump over 5% of a lap between frames, each
+tag matches its tower row, no two tags overlap, and pause freezes the map. It then
+checks keyboard and tower selection and that a restart keeps the selection.
+`trackFaultAudit(at)` drops the position socket for four seconds (map and tower
+freeze and show **Disconnected · frozen**, then resume), then withholds coordinates
+so markers fade after five seconds, disappear after fifteen and return with fresh
+samples. Results are written to `verification/track-map/`; checkpoint dumps there
+are ignored by Git. The checkpoints default to the Suzuka 2025 race; see
+[`verification/track-map/RESULTS.md`](verification/track-map/RESULTS.md) for what has
+been run.
 
 ### Historical dashboard replay and diagnosis
 
@@ -818,10 +859,11 @@ Verification on October 4, 2026:
 - Chrome desktop and 400px responsive inspection used a reconstructed excerpt
   of normalized replay seconds **3598–3630**, ending on lap 3. All 20 markers
   were present on matching geometry. Selecting Hamilton also selected his timing
-  row and displayed official **P8**, without changing his measured coordinates.
-  Closely grouped labels overlap, particularly on mobile; keyboard/tower
-  selection remains available. This verifies general historical rendering, not
-  the exact reported Sepang failure.
+  row and displayed official **P8**. Closely grouped labels overlapped at the time,
+  particularly on mobile; the collision placement described under
+  [Track map behavior and verification](#track-map-behavior-and-verification) was
+  added afterwards. This verifies general historical rendering, not the exact
+  reported Sepang failure.
 - Failing regression cases reproduced per-packet clock shifting (a sample at
   source +1s arriving at replay 13s incorrectly appeared at 13s instead of 11s)
   and a malformed driver's entry dropping other valid cars. Both are fixed.
