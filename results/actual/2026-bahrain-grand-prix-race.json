@@ -1,0 +1,33 @@
+{
+ "year": 2026,
+ "event": "Bahrain Grand Prix",
+ "kind": "race",
+ "date": "2026-10-04",
+ "source": "https://www.formula1.com/en/results/2026/races/1308/bahrain/race-result",
+ "retrieved": "2026-10-17",
+ "note": "FastF1 could not reach livetiming.formula1.com or the Ergast mirror from the environment this was scored in, so the official classification was copied from the source page.",
+ "classification": [
+  {"position": 1, "code": "VER", "name": "Max Verstappen", "status": "Finished"},
+  {"position": 2, "code": "ANT", "name": "Kimi Antonelli", "status": "Finished"},
+  {"position": 3, "code": "HAM", "name": "Lewis Hamilton", "status": "Finished"},
+  {"position": 4, "code": "LEC", "name": "Charles Leclerc", "status": "Finished"},
+  {"position": 5, "code": "HAD", "name": "Isack Hadjar", "status": "Finished"},
+  {"position": 6, "code": "PIA", "name": "Oscar Piastri", "status": "Finished"},
+  {"position": 7, "code": "LAW", "name": "Liam Lawson", "status": "Finished"},
+  {"position": 8, "code": "ALO", "name": "Fernando Alonso", "status": "Finished"},
+  {"position": 9, "code": "NOR", "name": "Lando Norris", "status": "Finished"},
+  {"position": 10, "code": "LIN", "name": "Arvid Lindblad", "status": "Finished"},
+  {"position": 11, "code": "HUL", "name": "Nico Hulkenberg", "status": "Finished"},
+  {"position": 12, "code": "STR", "name": "Lance Stroll", "status": "Finished"},
+  {"position": 13, "code": "COL", "name": "Franco Colapinto", "status": "Finished"},
+  {"position": 14, "code": "BEA", "name": "Oliver Bearman", "status": "Finished"},
+  {"position": 15, "code": "OCO", "name": "Esteban Ocon", "status": "Finished"},
+  {"position": 16, "code": "GAS", "name": "Pierre Gasly", "status": "Finished"},
+  {"position": 17, "code": "SAI", "name": "Carlos Sainz", "status": "Finished"},
+  {"position": 18, "code": "BOR", "name": "Gabriel Bortoleto", "status": "Finished"},
+  {"position": 19, "code": "PER", "name": "Sergio Perez", "status": "Finished"},
+  {"position": 20, "code": "RUS", "name": "George Russell", "status": "DNF"},
+  {"position": null, "code": "ALB", "name": "Alexander Albon", "status": "DNF"},
+  {"position": null, "code": "BOT", "name": "Valtteri Bottas", "status": "DNF"}
+ ]
+}
