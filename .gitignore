@@ -63,3 +63,6 @@ frontend/next-env.d.ts
 # Agent instructions
 AGENTS.md
 CLAUDE.md
+
+# Preview-only worktrees made by preview/run.sh
+.preview/

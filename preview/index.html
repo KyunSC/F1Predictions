@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pitwall redesigns</title>
+<style>
+ html,body{margin:0;height:100%;background:#0d1015;color:#e7e9ef;font:13px/1.4 system-ui,sans-serif;overflow:hidden}
+ iframe{position:fixed;inset:0;width:100%;height:100%;border:0;visibility:hidden;background:#0d1015}
+ iframe.active{visibility:visible}
+ #label{position:fixed;left:12px;bottom:12px;z-index:1;padding:6px 10px;background:#000c;border:1px solid #fff3;border-radius:4px;pointer-events:none;transition:opacity .3s}
+ #label.hide{opacity:0}
+ #label b{margin-right:6px}
+ @media(prefers-reduced-motion:reduce){#label{transition:none}}
+</style>
+</head>
+<body>
+<div id="label" role="status" aria-live="polite"></div>
+<script>
+// Preview-only. Keys 1-9 show styles 1-9 and 0 shows style 10. Each style runs on 127.0.0.1:520N and forwards
+// digit keys here (see forward-keys.ts) because a focused cross-origin iframe swallows key events.
+const styles=['Pit-wall race engineer','TV second screen','Grandstand phone','Post-race pace check','Pit-stop strategist',
+ 'F1 newcomer','Wall-mounted TV','Fantasy-league player','Replay pipeline maintainer','Post-race replay']
+const origin=n=>`http://127.0.0.1:${5200+n}`
+const frames=styles.map((name,i)=>{const f=document.createElement('iframe');f.src=origin(i+1);f.title=`Style ${i+1}: ${name}`;document.body.append(f);return f})
+const label=document.getElementById('label');let hideTimer
+function show(n){
+ if(!(n>=1&&n<=10))return
+ frames.forEach((f,i)=>f.classList.toggle('active',i===n-1))
+ history.replaceState(null,'',`#${n}`)
+ document.title=`${n} · ${styles[n-1]} · Pitwall redesigns`
+ label.innerHTML=`<b>${n%10}</b>${styles[n-1]}`;label.classList.remove('hide')
+ clearTimeout(hideTimer);hideTimer=setTimeout(()=>label.classList.add('hide'),1800)
+ frames[n-1].focus()
+}
+const fromKey=k=>k==='0'?10:Number(k)
+addEventListener('keydown',e=>{if(/^[0-9]$/.test(e.key)&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();show(fromKey(e.key))}})
+addEventListener('message',e=>{if(frames.some((_,i)=>e.origin===origin(i+1))&&e.data?.type==='pitwall-preview-key')show(fromKey(e.data.key))})
+show(Number(location.hash.slice(1))||1)
+</script>
+</body>
+</html>

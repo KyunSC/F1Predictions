@@ -126,8 +126,10 @@ async def websocket(ws: WebSocket):
 
 
 async def stream_websocket(ws: WebSocket, positions):
+    # Preview-only: the redesign previews run on 127.0.0.1:5200-5210.
     if ws.headers.get('origin') not in (None, 'http://localhost:5173', 'http://127.0.0.1:5173',
-                                      'http://localhost:8000', 'http://127.0.0.1:8000'):
+                                      'http://localhost:8000', 'http://127.0.0.1:8000',
+                                      *(f'http://127.0.0.1:{port}' for port in range(5200, 5211))):
         await ws.close(code=1008)
         return
     await ws.accept()
