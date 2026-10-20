@@ -23,7 +23,7 @@ export function TrackMap({stream,online,time,drivers,selected,select,pitLoss}:{s
  useEffect(()=>{if(!svg.current||typeof ResizeObserver==='undefined')return;const observer=new ResizeObserver(entries=>{const {width,height}=entries[0].contentRect;setViewport({width,height})});observer.observe(svg.current);return()=>observer.disconnect()},[geometryCurrent])
  const viewWidth=Math.max(width+pad*2,(height+pad*2)*(viewport.width-20)/(viewport.height-20)),viewHeight=Math.max(height+pad*2,(width+pad*2)*(viewport.height-20)/(viewport.width-20))
  const left=minX-(viewWidth-width)/2,top=minY-(viewHeight-height)/2
- const size=Math.max(width,height),scale=Math.min((viewport.width-20)/(width+pad*2),(viewport.height-20)/(height+pad*2)),font=Math.max(size*.018,11/scale),radius=Math.max(size*.008,5/scale)
+ const size=Math.max(width,height),scale=Math.min((viewport.width-20)/(width+pad*2),(viewport.height-20)/(height+pad*2)),font=Math.max(size*.018,15/scale),radius=Math.max(size*.008,6/scale)
  // Code-only tags sit just above and right of their dot; a pack pushes them
  // elsewhere, and only then is a leader line drawn back to the car.
  const tagHeight=font*1.5,prefer={dx:radius*.3/tagHeight,dy:-(radius*1.4/tagHeight+1.2)}
@@ -35,7 +35,7 @@ export function TrackMap({stream,online,time,drivers,selected,select,pitLoss}:{s
  const ghostAt=chosen&&projector&&driver?.pit_rejoin?ghostDistance(chosen.p!.distance,travelDirection(histories.find(h=>h.n===selected)!.s.filter(s=>s.presentation_timestamp<=time),projector.track.length),pitLoss,lapSeconds(driver.last_lap)??lapSeconds(driver.best_lap),projector.track.length):null
  const ghost=ghostAt===null?null:transform(...atDistance(projector!.track,ghostAt),geometry?.rotation||0),ghostColor=`#${/^[0-9a-f]{6}$/i.test(driver?.color||'')?driver!.color:'888888'}`
  const status=!online||stream?.connection==='connecting'||stream?.connection==='reconnecting'?'Disconnected · frozen':stream?.replay?`Replay${stream.synthetic?' · synthetic demo':''}${stream.replay.paused?' · paused':stream.replay.ended?' · finished':''}`:'Live coordinates'
- return <section className="panel track-map"><div className="panel-heading"><h2>Track map</h2><span>{status}</span></div><p className="description">Approximate track-projected positions{stream?.synthetic?' · synthetic demo':''} · Pit-lane and off-track measurements also project onto the outline. Track location differs from race position. · 1s display buffer{reduced?' · reduced motion':''}</p>
+ return <section className="panel track-map"><div className="panel-heading"><h2>Track map</h2><span>{status}</span></div>
  {!stream?.available&&<p role="status" className="description">Track map unavailable: {stream?.reason||'Awaiting coordinates'}</p>}
  {(!geometryCurrent||!alignment)?<p role="status" className="empty">{!alignment?'Track map unavailable: coordinates do not align with circuit geometry':!error&&geometry?.pending?geometry.reason:error||geometry?.reason?`Track map unavailable: ${error||geometry?.reason}`:!online?'Track map unavailable: position stream disconnected':'Loading circuit geometry…'}</p>:<>
  {(stream?.age_seconds!=null&&stream.age_seconds>5)&&<p role="status" className="description">Position stream stale</p>}
@@ -48,7 +48,8 @@ export function TrackMap({stream,online,time,drivers,selected,select,pitLoss}:{s
   <rect x={lx} y={ly} width={label.width} height={label.height} rx={font*.15} fill={active?color:'#10131b'} fillOpacity={active?1:.88}/>
   {!active&&<rect x={lx} y={ly+label.height-font*.16} width={label.width} height={font*.16} fill={color}/>}
   <text x={lx+label.width/2} y={ly+label.height*.7} textAnchor="middle" fontSize={font} fontWeight={700} letterSpacing={font*.04} fill="#fff">{d?.code||n}</text></g>})}
- </svg><p className="description">{geometry!.attribution}{geometry!.synthetic?' · Synthetic coordinates and outline, not measured data':''}</p></>}
+ </svg><p className="description attribution">{geometry!.attribution}{geometry!.synthetic?' · Synthetic coordinates and outline, not measured data':''}</p></>}
+ <p className="description">Approximate track-projected positions{stream?.synthetic?' · synthetic demo':''} · Pit-lane and off-track measurements also project onto the outline. Track location differs from race position. · 1s display buffer{reduced?' · reduced motion':''}</p>
  {stream?.diagnostics&&<details className="description"><summary>Replay coordinate diagnostics</summary><p>{stream.diagnostics.coordinate_packets} packets · {stream.diagnostics.decoded_samples} decoded samples · {stream.diagnostics.driver_coverage.length} numbers · geometry {geometryCurrent&&alignment?'available':'unavailable'}</p><p>Missing drivers: {stream.diagnostics.missing_drivers.join(', ')||'none'} · Rejected: {JSON.stringify(stream.diagnostics.rejected)} · Gaps over 5s: {JSON.stringify(stream.diagnostics.gaps_over_5s)}</p></details>}
  <div className="panel-note" aria-live="polite">{selected?`${driver?.name||selected} · P${driver?.position||'—'} · coordinate age ${chosen?chosen.p!.age.toFixed(1)+'s':'unavailable'}`:'Select a car or a driver in the timing tower.'}{driver&&<div className="pit-note">{rejoinSummary(driver,drivers)}{ghost?' · dashed ring marks the approximate on-track rejoin point':''}</div>}</div></section>
 }
