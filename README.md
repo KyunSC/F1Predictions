@@ -1,8 +1,8 @@
 # F1 Race Predictions
 
 Predict relative race pace using qualifying performance and earlier races and sprints
-from the same season. The notebook defaults to the **2026 Singapore Sprint at Marina
-Bay (October 10)**; set `TARGET_KIND = "race"` to predict a Grand Prix instead. Its main
+from the same season. The notebook defaults to the **2026 United States Grand Prix at
+Austin (October 25)**; set `TARGET_KIND = "sprint"` to predict a sprint instead. Its main
 output is a pace ranking. A CatBoost finishing-order
 ranker is also validated, and its order is shown only if it beats simple baselines.
 A podium section compares 24 orderings and probability models (rankers, ratings,
@@ -21,33 +21,37 @@ python3.12 -m venv .venv
 Run the notebook from top to bottom. Timing data is downloaded through FastF1 and
 cached under `cache/`; the first run can take several minutes.
 
+`python score_predictions.py` scores the saved predictions in `results/` against the
+actual classifications in `results/actual/` and writes `results/scorecard.md`. A
+missing result is fetched through FastF1 and saved; `--refresh` refetches all of them.
+
 The configuration defaults to:
 
 ```python
-TARGET_RACE = (2026, "Singapore Grand Prix")
-TARGET_KIND = "sprint"   # or "race"
+TARGET_RACE = (2026, "United States Grand Prix")
+TARGET_KIND = "race"   # or "sprint"
 SESSION_CODES = {"race": ("Q", "R"), "sprint": ("SQ", "S")}
 ```
 
 The notebook resolves the exact event name from FastF1's schedule, then loads
 sessions by round number. `EXPECTED_VENUES` pins known targets to a location and the
-UTC date of the scored session: the Singapore Sprint must be at Marina Bay on
-October 10, and the relocated Bahrain GP at Sepang/Kuala Lumpur on October 4 (an
-outdated Sakhir entry is rejected).
+UTC date of the scored session: the United States GP must be at Austin on October 25,
+the Singapore Sprint at Marina Bay on October 10, and the relocated Bahrain GP at
+Sepang/Kuala Lumpur on October 4 (an outdated Sakhir entry is rejected).
 
 Training sessions are selected automatically: every 2026 Grand Prix **and** sprint
 whose scored session starts strictly before the target, ordered by UTC start. For the
-Singapore Sprint (09:00 UTC) that is all 16 earlier Grands Prix (rounds 1–16, through
-the October 4 race at Sepang) and the 5 earlier sprints (China, Miami, Canada, British,
-Dutch): 21 sessions. Sprint and GP rows can be pooled because every quantity is a ratio
+United States GP (20:00 UTC) that is all 17 earlier Grands Prix (rounds 1–17, through
+the October 11 race at Marina Bay) and the 6 earlier sprints (China, Miami, Canada,
+British, Dutch, Singapore): 23 sessions. Sprint and GP rows can be pooled because every quantity is a ratio
 within its own session. Each sprint is its own group (`RaceId` ends in `Sprint`), and a
 weekend's sprint precedes its Grand Prix in the form features. No sprint flag is added
 to the features. Missing sessions are reported and skipped; at least four usable
 sessions are required.
 
-For the target, only sprint qualifying (`SQ`) is loaded. The sprint itself, and the
-weekend's later qualifying and Grand Prix, are never loaded, including when the notebook
-is rerun afterwards. Target qualifying must contain usable times. If qualifying results
+For the target, only its qualifying is loaded (`Q` for a Grand Prix, `SQ` for a sprint).
+The scored session, and for a sprint the weekend's later qualifying and Grand Prix, are
+never loaded, including when the notebook is rerun afterwards. Target qualifying must contain usable times. If qualifying results
 contain no times, the notebook retries with official timing laps and race-control
 messages so FastF1 can reconstruct the classification. That fallback matters for
 sprint qualifying, which the Ergast-compatible results service does not provide.
