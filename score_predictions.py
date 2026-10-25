@@ -2,16 +2,20 @@
 
 Each `results/*_prediction_*.md` snapshot is matched to its session by its title, e.g.
 "Podium prediction: 2026 Bahrain Grand Prix (Sepang, Oct 4)" or "... 2026 Singapore Sprint ...".
-The actual classification is read from `results/actual/<year>-<event>-<kind>.json`. When that
-file is missing (or with --refresh) it is fetched through FastF1 and saved there, so the scored
-result is recorded next to the prediction. The scorecard is written to results/scorecard.md.
+The title's date is the scored session's date; FastF1's UTC date may differ from it by a day
+(a Saturday-night race such as Las Vegas). The actual classification is read from
+`results/actual/<year>-<event>-<kind>.json`. When that file is missing (or with --refresh) it is
+fetched through FastF1 and saved there, so the scored result is recorded next to the prediction.
+A snapshot whose session has not happened yet, or whose result cannot be fetched, is listed as
+not scored yet. The scorecard is written to results/scorecard.md.
 
 Run: python score_predictions.py [--refresh]
 """
 import argparse
 import json
 import re
-from datetime import date
+import unicodedata
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -30,6 +34,15 @@ CODE = re.compile(r'^([A-Z]{3})\b')
 
 def slug(text):
     return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
+
+
+def utc_today():
+    return datetime.now(timezone.utc).date()
+
+
+def fold(name):
+    """Last word of a name, lower-cased and without accents: 'Sergio Pérez' -> 'perez'."""
+    return unicodedata.normalize('NFKD', name.split()[-1]).encode('ascii', 'ignore').decode().lower()
 
 
 def parse_prediction(path):
@@ -51,8 +64,9 @@ def parse_prediction(path):
         if len(cells) != 4 or cells[0] == 'Model' or set(cells[0]) <= set('-: '):
             continue
         codes = [CODE.match(c) for c in cells[1:]]
-        if all(codes):
-            models[cells[0]] = [c.group(1) for c in codes]
+        if not all(codes):
+            raise ValueError(f'{path.name}: model row {cells[0]!r} does not start each place with a driver code')
+        models[cells[0]] = [c.group(1) for c in codes]
     if not models:
         raise ValueError(f'{path.name}: the "Predicted podium by model" table has no rows')
     return dict(file=path.name, year=int(year), event=f'{name} Grand Prix', kind='race' if kind_word == 'Grand Prix' else 'sprint',
@@ -65,15 +79,18 @@ def actual_path(pred):
     return ACTUAL_DIR / f"{pred['year']}-{slug(pred['event'])}-{pred['kind']}.json"
 
 
-def fetch_fastf1(pred):
-    """Official classification through FastF1, checked against the prediction's session date."""
+def fetch_fastf1(pred, renew=False):
+    """Official classification through FastF1, checked against the prediction's session date.
+
+    `renew` bypasses FastF1's local cache, so a refresh picks up post-race penalties.
+    """
     import fastf1
     import pandas as pd
     CACHE_DIR.mkdir(exist_ok=True)
-    fastf1.Cache.enable_cache(str(CACHE_DIR))
+    fastf1.Cache.enable_cache(str(CACHE_DIR), force_renew=renew)
     session = fastf1.get_session(pred['year'], pred['event'], SESSION_CODES[pred['kind']])
-    session_date = session.date.date().isoformat()
-    if session_date != pred['date']:
+    session_date = session.date.date()
+    if abs((session_date - date.fromisoformat(pred['date'])).days) > 1:
         raise ValueError(f"FastF1 dates {pred['label']} {session_date}, the prediction says {pred['date']}")
     session.load(laps=False, telemetry=False, weather=False, messages=False)
     results = session.results
@@ -91,6 +108,8 @@ def fetch_fastf1(pred):
         else:
             rows.append(dict(position=None, code=row['Abbreviation'], name=row['FullName'],
                              status=NOT_CLASSIFIED.get(classified, status)))
+    if sorted(r['position'] for r in rows if r['position'] is not None)[:3] != [1, 2, 3]:
+        raise ValueError(f"FastF1 results for {pred['label']} do not classify positions 1 to 3")
     return dict(year=pred['year'], event=pred['event'], kind=pred['kind'], date=pred['date'],
                 source=f'FastF1 {fastf1.__version__}', retrieved=date.today().isoformat(), classification=rows)
 
@@ -103,18 +122,25 @@ def dump_actual(actual):
     return '{\n' + '\n'.join(lines) + '\n "classification": [\n' + ',\n'.join(rows) + '\n ]\n}\n'
 
 
-def load_actual(pred, refresh=False):
+def load_actual(pred, refresh=False, fetch=True):
+    """The saved or fetched classification, or None while the session has no result yet.
+
+    With fetch=False only saved results are read, so nothing touches the network.
+    """
     path = actual_path(pred)
     if path.exists() and not refresh:
         actual = json.loads(path.read_text())
+    elif not fetch or date.fromisoformat(pred['date']) > utc_today():
+        return None
     else:
         try:
-            actual = fetch_fastf1(pred)
+            actual = fetch_fastf1(pred, renew=refresh)
         except Exception as error:
             if not path.exists():
-                raise SystemExit(f'No result for {pred["label"]}: FastF1 failed ({error}). Save the official '
-                                 f'classification (e.g. from formula1.com/en/results) to {path.relative_to(ROOT)} '
-                                 'in the same format as the files already there.')
+                print(f'No result for {pred["label"]} yet: FastF1 failed ({error}). To score it, save the official '
+                      f'classification (e.g. from formula1.com/en/results) to {path.relative_to(ROOT)} in the same '
+                      'format as the files already there.')
+                return None
             print(f'FastF1 refresh failed for {pred["label"]} ({error}); keeping {path.relative_to(ROOT)}')
             actual = json.loads(path.read_text())
         else:
@@ -127,11 +153,16 @@ def load_actual(pred, refresh=False):
 
 
 def surname_codes(actual, surnames):
-    by_surname = {r['name'].split()[-1].lower(): r['code'] for r in actual['classification']}
-    missing = [s for s in surnames if s.split()[-1].lower() not in by_surname]
+    by_surname = {}
+    for r in actual['classification']:
+        by_surname.setdefault(fold(r['name']), []).append(r['code'])
+    missing = [s for s in surnames if fold(s) not in by_surname]
     if missing:
         raise ValueError(f"best single answer names {', '.join(missing)}, not in the classification")
-    return [by_surname[s.split()[-1].lower()] for s in surnames]
+    shared = [s for s in surnames if len(by_surname[fold(s)]) > 1]
+    if shared:
+        raise ValueError(f"best single answer names {', '.join(shared)}, a surname shared by several drivers")
+    return [by_surname[fold(s)][0] for s in surnames]
 
 
 def finish(actual, code):
@@ -146,6 +177,8 @@ def finish(actual, code):
 def score(predicted, actual):
     podium = [r['code'] for r in sorted((r for r in actual['classification'] if r['position'] is not None),
                                         key=lambda r: r['position'])[:3]]
+    if len(podium) < 3:
+        raise ValueError(f"{actual.get('event', 'result')}: fewer than three classified finishers")
     return dict(predicted=predicted, podium=podium,
                 hits=[c for c in predicted if c in podium],
                 misses=[(c, finish(actual, c)) for c in predicted if c not in podium],
@@ -154,20 +187,24 @@ def score(predicted, actual):
                 winner=predicted[0] == podium[0])
 
 
-def score_all(refresh=False):
-    sessions = []
+def score_all(refresh=False, fetch=True):
+    """Scored sessions, and the predictions that have no result yet."""
+    sessions, pending = [], []
     for pred in sorted((parse_prediction(p) for p in RESULTS.glob('*_prediction_*.md')), key=lambda p: p['date']):
-        actual = load_actual(pred, refresh)
+        actual = load_actual(pred, refresh, fetch)
+        if actual is None:
+            pending.append(pred)
+            continue
         sessions.append(dict(pred=pred, actual=actual, best=score(surname_codes(actual, pred['best']), actual),
                              models={m: score(p, actual) for m, p in pred['models'].items()}))
-    return sessions
+    return sessions, pending
 
 
 def yes(flag):
     return 'yes' if flag else 'no'
 
 
-def render(sessions):
+def render(sessions, pending=()):
     out = ['# Prediction scorecard', '',
            'Written by `score_predictions.py` from the snapshots in this folder and the actual '
            'classifications in `actual/`; rerun it after adding a snapshot. A hit is a predicted '
@@ -179,10 +216,16 @@ def render(sessions):
         b = s['best']
         out.append(f"| {s['pred']['label']} | {', '.join(b['predicted'])} | {', '.join(b['podium'])} | "
                    f"{b['places']} of 3 | {b['exact']} of 3 | {yes(b['winner'])} |")
+    if pending:
+        out += ['', '## Not scored yet', '', 'No result saved yet for:', '']
+        out += [f"- {p['label']} ({p['venue']}, {p['date']}): [`{p['file']}`]({p['file']})" for p in pending]
     n = len(sessions)
-    models = [m for m in sessions[0]['models'] if all(m in s['models'] for s in sessions)] if sessions else []
-    out += ['', f'## By model, over {n} session{"s" * (n != 1)}', '',
-            '| Model | Podium places | Exact | Winners |', '|---|---:|---:|---:|']
+    named = list(dict.fromkeys(m for s in sessions for m in s['models']))
+    models = [m for m in named if all(m in s['models'] for s in sessions)]
+    out += ['', f'## By model, over {n} session{"s" * (n != 1)}', '']
+    if len(models) < len(named):
+        out += [f"Left out because they are missing from some sessions: {', '.join(m for m in named if m not in models)}.", '']
+    out += ['| Model | Podium places | Exact | Winners |', '|---|---:|---:|---:|']
     for m in models:
         rows = [s['models'][m] for s in sessions]
         out.append(f"| {m} | {sum(r['places'] for r in rows)} of {3 * n} | {sum(r['exact'] for r in rows)} of {3 * n} | "
@@ -205,12 +248,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--refresh', action='store_true', help='refetch every result through FastF1')
     args = parser.parse_args()
-    sessions = score_all(args.refresh)
-    SCORECARD.write_text(render(sessions))
+    sessions, pending = score_all(args.refresh)
+    SCORECARD.write_text(render(sessions, pending))
     for s in sessions:
         b = s['best']
         print(f"{s['pred']['label']}: called {', '.join(b['predicted'])}, podium {', '.join(b['podium'])}; "
               f"{b['places']}/3 places, {b['exact']}/3 exact, winner {yes(b['winner'])}")
+    for p in pending:
+        print(f"{p['label']}: not scored yet")
     print(f'Wrote {SCORECARD.relative_to(ROOT)}')
 
 
