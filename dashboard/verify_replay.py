@@ -1,8 +1,13 @@
-"""Local acceptance harness using the full recording, never future seed state.
+"""Local acceptance harness using a full recording, never future seed state.
 
-python -m dashboard.verify_replay --at 3600 --port 8010
-Serve production builds from verification/track-map/{before,after}.
-The checkpoint endpoint is confined to this separately launched test harness.
+python -m dashboard.verify_replay --at 3600
+Listens on 127.0.0.1:8000, where the frontend's rewrites send /api and /ws, so stop
+the dashboard first (ports 8000 and 5173) and serve the current build with
+`npm run build && npm start`. Output defaults to verification/track-map/ for the
+Suzuka recording and verification/track-map/<recording name>/ for any other.
+Checkpoint, fault and result endpoints live under /api/verify/ so the frontend
+proxies them too; they exist only in this separately launched test harness.
+Checkpoints are absolute recording seconds, the same clock as the seek control.
 """
 import argparse
 import asyncio
@@ -12,8 +17,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 import uvicorn
 from .geometry import Geometry
@@ -26,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def checkpoint(recording, at):
     state = State()
     replay = Replay(state, recording)
-    replay.advance(at)
+    replay.control('seek', position=at)
     replay.control('pause')
     return state, replay
 
@@ -35,13 +39,15 @@ def create_app(recording, at, output):
     state, replay = checkpoint(recording, at)
     geometry = Geometry()
     disconnected_until = 0.
-    omit_positions_until = -1.
+    # Recording seconds whose coordinates are withheld; a rebuild by seek or restart
+    # replays earlier events through this wrapper too, so the window has a start.
+    omitted = None
     original_apply = state.apply
 
-    def apply(topic, payload, timestamp=None, now=None):
-        if topic == 'Position.z' and now is not None and now <= omit_positions_until:
+    def apply(topic, payload, timestamp=None, now=None, record=True):
+        if topic == 'Position.z' and omitted and now is not None and omitted[0] < now <= omitted[1]:
             return
-        original_apply(topic, payload, timestamp, now)
+        original_apply(topic, payload, timestamp, now, record=record)
     state.apply = apply
 
     @asynccontextmanager
@@ -71,27 +77,33 @@ def create_app(recording, at, output):
 
     @app.post('/api/replay/control')
     async def control(body: dict):
-        replay.control(body['action'], body.get('speed'))
+        try:
+            replay.control(body.get('action'), body.get('speed'), body.get('position'))
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
         return state.snapshot()
 
-    @app.post('/checkpoint/{moment}')
+    @app.post('/api/verify/checkpoint/{moment}')
     async def seek(moment: float):
-        replay.control('restart')
-        replay.advance(moment/replay.speed)
+        nonlocal omitted
+        omitted = None  # a checkpoint starts clean; faults never outlive it
+        replay.control('seek', position=moment)
         replay.control('pause')
         frame = state.position_snapshot()
         output.mkdir(parents=True, exist_ok=True)
         (output / f'checkpoint-{moment:g}.json').write_text(json.dumps(frame))
-        return {'at': replay.position, 'preceding_events': replay.index,
-                'next_event': replay.events[replay.index]['at']}
+        upcoming = replay.events[replay.index]['at'] if replay.index < len(replay.events) else None
+        return {'at': replay.position, 'preceding_events': replay.index, 'next_event': upcoming}
 
-    @app.post('/fault/{kind}')
+    @app.post('/api/verify/fault/{kind}')
     async def fault(kind: str):
-        nonlocal disconnected_until, omit_positions_until
+        nonlocal disconnected_until, omitted
         if kind == 'disconnect':
             disconnected_until = time.monotonic()+4
         elif kind == 'positions':
-            omit_positions_until = replay.position+19
+            omitted = (replay.position, replay.position+19)
+        else:
+            raise HTTPException(404, 'Use disconnect or positions')
         return {'fault': kind}
 
     @app.websocket('/ws/positions')
@@ -117,25 +129,23 @@ def create_app(recording, at, output):
         except WebSocketDisconnect:
             pass
 
-    @app.get('/audit.js')
+    @app.get('/api/verify/audit.js')
     async def audit_script():
-        return FileResponse(output/'audit.js', media_type='text/javascript')
+        return FileResponse(ROOT/'verification/track-map/audit.js', media_type='text/javascript')
 
-    @app.post('/audit-results/{name}')
+    @app.post('/api/verify/results/{name}')
     async def results(name: str, body: dict):
         if not name.replace('-', '').isalnum():
-            return {'error': 'Invalid name'}
+            raise HTTPException(400, 'Use letters, digits and hyphens')
+        # Record which outline the browser measured against next to the results.
+        body = dict(body, geometry={k: geometry.value.get(k) for k in ('geometry_id', 'attribution', 'provenance')})
         (output / (name+'.json')).write_text(json.dumps(body, indent=2))
         return {'saved': name}
 
-    @app.get('/frame')
+    @app.get('/api/verify/frame')
     async def frame():
         return state.position_snapshot()
 
-    for version in ('before', 'after'):
-        path = output / version
-        if path.exists():
-            app.mount('/'+version, StaticFiles(directory=path, html=True))
     return app
 
 
@@ -143,11 +153,16 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--recording', type=Path, default=ROOT/'cache/suzuka-replay.jsonl')
     parser.add_argument('--at', type=float, default=3600)
-    parser.add_argument('--port', type=int, default=8010)
-    parser.add_argument('--output', type=Path, default=ROOT/'verification/track-map')
+    parser.add_argument('--port', type=int, default=8000)
+    parser.add_argument('--output', type=Path,
+                        help='default: verification/track-map/ for suzuka-replay.jsonl, else a folder named after the recording')
     args = parser.parse_args()
+    if args.output is None:
+        # Keep the committed Suzuka evidence from being overwritten by other recordings.
+        args.output = ROOT/'verification/track-map'
+        if args.recording.name != 'suzuka-replay.jsonl':
+            args.output /= args.recording.stem
     args.output.mkdir(parents=True, exist_ok=True)
-    (args.output/'source.json').write_text(json.dumps({'recording': str(args.recording),
-        'sha256': hashlib.sha256(args.recording.read_bytes()).hexdigest(),
-        'geometry': 'cache/track-maps/46-2025.json'}, indent=2))
+    (args.output/'source.json').write_text(json.dumps({'recording': args.recording.name,
+        'sha256': hashlib.sha256(args.recording.read_bytes()).hexdigest()}, indent=2))
     uvicorn.run(create_app(args.recording, args.at, args.output), host='127.0.0.1', port=args.port)

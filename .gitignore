@@ -63,3 +63,6 @@ frontend/next-env.d.ts
 # Agent instructions
 AGENTS.md
 CLAUDE.md
+
+# Track-map audit checkpoint dumps
+verification/**/checkpoint-*.json
