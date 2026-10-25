@@ -16,6 +16,8 @@ it('headlines the track condition and who should box',()=>{
  expect(neutralised(sc)).toBe(true);expect(neutralised({...sc,condition:'green'})).toBe(false)
  expect(strategyHeadline(sc,drivers)).toBe('Safety car · stops cost 12.0 s, 10.0 s less than under green · Box: PIA, NOR')
  expect(strategyHeadline({...sc,condition:'vsc',boxes:[]},drivers)).toBe('Virtual safety car · stops cost 12.0 s, 10.0 s less than under green · Nobody should box')
+ // VSC ending turns every box call into a maybe.
+ expect(strategyHeadline({...sc,condition:'vsc',boxes:[],maybes:['4','1']},drivers)).toBe('Virtual safety car · stops cost 12.0 s, 10.0 s less than under green · Could box: NOR, VER')
  expect(strategyHeadline({...sc,saving:null,reason:'No Safety car pit-loss history; calls assume the green-flag loss.'},drivers)).toBe('Safety car · No Safety car pit-loss history; calls assume the green-flag loss. · Box: PIA, NOR')
  expect(strategyHeadline({...sc,condition:'green',saving:null,loss:22,boxes:[]},drivers)).toBe('Green flag · stops cost 22.0 s')
  expect(strategyHeadline({...sc,condition:'red',reason:'Red flag: free tyre change.'},drivers)).toBe('Red flag · Red flag: free tyre change.')

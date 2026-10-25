@@ -14,8 +14,9 @@ export function strategyHeadline(summary:StrategySummary|undefined,drivers:Drive
  const name=NAMES[summary.condition]
  if(!neutralised(summary))return summary.reason?`${name} · ${summary.reason}`:`${name} · stops cost ${summary.loss?.toFixed(1)??'—'} s`
  const cost=summary.saving!=null&&summary.saving>0?`stops cost ${summary.loss?.toFixed(1)} s, ${summary.saving.toFixed(1)} s less than under green`:summary.reason||'no cheaper stop'
- const boxes=summary.boxes.map(n=>code(n,drivers)).join(', ')
- return `${name} · ${cost} · ${boxes?`Box: ${boxes}`:'Nobody should box'}`
+ const names=(numbers?:string[])=>(numbers||[]).map(n=>code(n,drivers)).join(', ')
+ const boxes=names(summary.boxes),maybes=names(summary.maybes)
+ return `${name} · ${cost} · ${boxes?`Box: ${boxes}`:maybes?`Could box: ${maybes}`:'Nobody should box'}`
 }
 export function tyreLifeNote(summary?:StrategySummary){
  const lives=summary?.lives||{};const dry=COMPOUNDS.filter(c=>lives[c]&&!['INTERMEDIATE','WET'].includes(c))

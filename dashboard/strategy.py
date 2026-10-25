@@ -3,8 +3,9 @@
 Display only, like the rejoin projection it builds on. Inputs are the live timing feed
 (stints, lap count, gaps, track status) and the pit-loss table; nothing feeds the notebook.
 
-Tyre life per compound comes from stints already completed in this race once enough cars
-have stopped, otherwise from a share of the race distance. Under a safety car or VSC a
+Tyre life per compound comes from stints already completed in this race once at least half
+of the stints on that compound have ended (the first to end are undercuts and safety-car
+stops, which run short), otherwise from a share of the race distance. Under a safety car or VSC a
 stop costs the neutralised pit loss instead of the green-flag one, so a stop the car needs
 anyway is cheaper now; a car with no stop left boxes only when it keeps its position.
 """
@@ -16,7 +17,7 @@ DRY = ('SOFT', 'MEDIUM', 'HARD')
 WET = ('INTERMEDIATE', 'WET')
 # Expected tyre life as a share of race laps until this race shows its own.
 LIFE_SHARE = {'SOFT': .3, 'MEDIUM': .45, 'HARD': .6, 'INTERMEDIATE': .5, 'WET': .5}
-MIN_OBSERVED = 3   # completed stints of a compound before this race's tyre life replaces the default
+MIN_OBSERVED = 3   # completed stints (and no fewer than still running) before this race's tyre life is used
 SHORT_STINT = 5    # shorter stints are lap-one or damage stops, not tyre life
 OPEN_SHARE = .75   # the window opens at this share of expected life
 STRETCH = 1.1      # a tyre can run this far past its expected life
@@ -42,16 +43,19 @@ def ordered_stints(line):
 
 def tyre_lives(tyres, total_laps):
     """Expected tyre age at which each compound is changed, with where that number came from."""
-    observed = {}
+    observed, running = {}, {}
     for line in tyres.values():
-        for stint in ordered_stints(line)[:-1]:  # every stint but the current one has ended in a stop
+        stints = ordered_stints(line)
+        for stint in stints[:-1]:  # every stint but the current one has ended in a stop
             age, start = number(stint.get('TotalLaps')), number(stint.get('StartLaps')) or 0
             if stint.get('Compound') in LIFE_SHARE and age is not None and age - start >= SHORT_STINT:
                 observed.setdefault(stint['Compound'], []).append(age)
+        if stints:
+            running[stints[-1].get('Compound')] = running.get(stints[-1].get('Compound'), 0) + 1
     lives = {}
     for compound, share in LIFE_SHARE.items():
         seen = observed.get(compound, [])
-        if len(seen) >= MIN_OBSERVED:
+        if len(seen) >= MIN_OBSERVED and len(seen) >= running.get(compound, 0):
             lives[compound] = dict(laps=round(statistics.median(seen)), basis='race', stints=len(seen))
         else:
             lives[compound] = dict(laps=max(1, round(share * total_laps)), basis='default', stints=len(seen))
@@ -67,17 +71,20 @@ def plan(stints, lap, total, lives):
     if compound not in LIFE_SHARE or age is None:
         return None
     life = lives[compound]['laps']
+    stint_laps = age - (number(current.get('StartLaps')) or 0)  # laps since the stop; used sets start older
     to_go = max(0, total - lap + 1)  # includes the lap in progress
     used = {s.get('Compound') for s in stints}
     # Dry races require two dry compounds; using intermediates or wets lifts the rule.
     must_change = not used & set(WET) and len(used & set(DRY)) < 2
     left_on_tyre = max(0, math.floor(life * STRETCH) - age)
-    longest = max(lives[c]['laps'] for c in (WET if compound in WET else DRY))
+    # The next set: the longest-lasting compound of the kind in use, but a different one when the rule demands it.
+    options = [c for c in (WET if compound in WET else DRY) if not (must_change and c == compound)]
+    longest = max(lives[c]['laps'] for c in options)
     if to_go <= left_on_tyre:
         stops = 1 if must_change and to_go > 1 else 0
     else:
         stops = math.ceil((to_go - left_on_tyre) / (longest * STRETCH))
-    result = dict(compound=compound, age=age, life=life, to_go=to_go, stops=stops, must_change=must_change,
+    result = dict(compound=compound, age=age, stint_laps=stint_laps, life=life, to_go=to_go, stops=stops, must_change=must_change,
                   window=None, final_stint=to_go <= longest * STRETCH, reaches_end=to_go <= left_on_tyre)
     if stops:
         close = min(lap + left_on_tyre, total - 1)
@@ -108,8 +115,8 @@ def neutral_call(p, rejoin, kind, saving):
     cheaper = f'saves {saving:.1f} s on a green-flag stop' if saving and saving > 0 else 'same loss as a green-flag stop'
     where = f"rejoins P{rejoin['position']}" if rejoin else 'rejoin unknown'
     lost = (rejoin or {}).get('positions_lost')
-    if p['age'] < FRESH:
-        return 'stay_out', 'STAY OUT', f"Stopped {p['age']} laps ago"
+    if p['stint_laps'] < FRESH:
+        return 'stay_out', 'STAY OUT', f"Stopped {p['stint_laps']} lap{'' if p['stint_laps'] == 1 else 's'} ago"
     if p['to_go'] < MIN_TO_GO:
         return 'stay_out', 'STAY OUT', 'Too few laps left for fresh tyres to pay back'
     if p['stops']:
@@ -132,7 +139,7 @@ def advise(drivers, tyres, laps, status, loss, green):
     neutral_loss = loss.get('seconds') if kind and loss.get('condition') == kind else None
     saving = round(green - neutral_loss, 1) if green is not None and neutral_loss is not None else None
     summary = dict(condition='red' if status == '5' else kind or 'green', saving=saving, loss=loss.get('seconds'),
-                   green_loss=green, boxes=[], lives={}, reason=None)
+                   green_loss=green, boxes=[], maybes=[], lives={}, reason=None)
     if status == '5':
         return {}, dict(summary, reason='Red flag: teams may change tyres in the pit lane without losing time.')
     if not lap or not total or not tyres:
@@ -166,6 +173,7 @@ def advise(drivers, tyres, laps, status, loss, green):
             if mine is not None and theirs is not None and 0 <= mine - theirs <= STACK_GAP:
                 calls[driver['number']]['stack'] = mate['number']
     summary['boxes'] = [d['number'] for d in boxing]
+    summary['maybes'] = [d['number'] for d in drivers if (calls.get(d['number']) or {}).get('call') == 'consider']
     if kind and neutral_loss is None:
         summary['reason'] = f'No {NAMES[kind]} pit-loss history; calls assume the green-flag loss.'
     return calls, summary

@@ -213,7 +213,7 @@ class State:
             calls, advice = strategy.advise(drivers, tyres, self.topics.get('LapCount', {}), status, pit_loss,
                                             self.pit_loss_for(info, '1')['seconds'])
         else:
-            calls, advice = {}, dict(condition=None, boxes=[], lives={}, reason='Pit strategy is shown only in races.')
+            calls, advice = {}, dict(condition=None, boxes=[], maybes=[], lives={}, reason='Pit strategy is shown only in races.')
         for driver in drivers:
             driver['strategy'] = calls.get(driver['number'])
         standings = championship(self.topics.get('ChampionshipPrediction'), self.topics.get('DriverList', {}), info,
