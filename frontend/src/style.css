@@ -4,3 +4,15 @@
 .rejoin-neighbour{background:#1e2230}.rejoin-neighbour td:first-child{box-shadow:inset 3px 0 #b7a4fa}.pit-note{margin-top:6px;color:#c8cfda}
 .picker{margin-top:12px;background:#1b1d2b;border:1px solid #373747;border-radius:8px;padding:17px 22px;display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:15px}.picker-fields{display:flex;flex-wrap:wrap;gap:12px}.picker label{display:flex;flex-direction:column;gap:6px;margin:0;font-size:10px;letter-spacing:1px;text-transform:uppercase}.picker select{margin:0;min-width:120px;max-width:100%;text-transform:none;letter-spacing:0;font-size:12px}.picker select:disabled{opacity:.45;cursor:default}.picker-actions{display:flex;gap:8px;align-items:center}.picker-actions [role=status]{font-size:11px;color:#a1a7ba;margin-right:6px}.picker .primary{background:#fe5948;border-color:#fe5948;color:#fff}.picker .notice{flex-basis:100%;margin:0}.header-actions>button{font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:9px 12px}
 @media(max-width:650px){.picker{display:block;padding:15px}.picker-fields{flex-direction:column}.picker select{width:100%}.picker-actions{margin-top:15px;flex-wrap:wrap}.picker-actions [role=status]{flex-basis:100%}.picker .notice{margin-top:12px}.header-actions>button{font-size:8px;padding:7px 8px}}
+.call{display:inline-block;min-width:54px;text-align:center;font:700 10px ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.5px;padding:3px 6px;border-radius:4px;border:1px solid #3a404c;color:#aab3c2;white-space:nowrap}
+.call.none{border-color:transparent}
+.call.box{background:#fe5948;border-color:#fe5948;color:#fff}
+.call.consider{border-color:#e5c382;color:#e5c382}
+.call.window{border-color:#79d69b;color:#79d69b}
+.call.no_stop{color:#8e96a6}
+.panel.strategy.neutralised{border-color:#e5c382}
+.panel.strategy.neutralised .strategy-headline{color:#e5c382;font-weight:600}
+.strategy-row{display:flex;gap:14px;padding:10px 20px;border-top:1px solid #2b303a;align-items:center}
+.strategy-driver{border-left:3px solid;padding-left:10px;min-width:0}
+.strategy-driver button{background:none;border:0;padding:0;color:inherit;font:inherit;font-weight:700;cursor:pointer}
+.strategy-driver small{display:block;font-size:10px;color:#929bac;margin-top:3px;line-height:1.4}
