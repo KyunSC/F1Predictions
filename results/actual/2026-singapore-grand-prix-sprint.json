@@ -1,0 +1,33 @@
+{
+ "year": 2026,
+ "event": "Singapore Grand Prix",
+ "kind": "sprint",
+ "date": "2026-10-10",
+ "source": "https://www.formula1.com/en/results/2026/races/1296/singapore/sprint-results",
+ "retrieved": "2026-10-17",
+ "note": "FastF1 could not reach livetiming.formula1.com or the Ergast mirror from the environment this was scored in, so the official classification was copied from the source page.",
+ "classification": [
+  {"position": 1, "code": "VER", "name": "Max Verstappen", "status": "Finished"},
+  {"position": 2, "code": "HAM", "name": "Lewis Hamilton", "status": "Finished"},
+  {"position": 3, "code": "LEC", "name": "Charles Leclerc", "status": "Finished"},
+  {"position": 4, "code": "ANT", "name": "Kimi Antonelli", "status": "Finished"},
+  {"position": 5, "code": "LAW", "name": "Liam Lawson", "status": "Finished"},
+  {"position": 6, "code": "BEA", "name": "Oliver Bearman", "status": "Finished"},
+  {"position": 7, "code": "HUL", "name": "Nico Hulkenberg", "status": "Finished"},
+  {"position": 8, "code": "NOR", "name": "Lando Norris", "status": "Finished"},
+  {"position": 9, "code": "GAS", "name": "Pierre Gasly", "status": "Finished"},
+  {"position": 10, "code": "OCO", "name": "Esteban Ocon", "status": "Finished"},
+  {"position": 11, "code": "ALO", "name": "Fernando Alonso", "status": "Finished"},
+  {"position": 12, "code": "SAI", "name": "Carlos Sainz", "status": "Finished"},
+  {"position": 13, "code": "LIN", "name": "Arvid Lindblad", "status": "Finished"},
+  {"position": 14, "code": "PIA", "name": "Oscar Piastri", "status": "DNF"},
+  {"position": null, "code": "ALB", "name": "Alexander Albon", "status": "DNF"},
+  {"position": null, "code": "BOR", "name": "Gabriel Bortoleto", "status": "DNF"},
+  {"position": null, "code": "BOT", "name": "Valtteri Bottas", "status": "DNF"},
+  {"position": null, "code": "HAD", "name": "Isack Hadjar", "status": "DNF"},
+  {"position": null, "code": "COL", "name": "Franco Colapinto", "status": "DNF"},
+  {"position": null, "code": "RUS", "name": "George Russell", "status": "DNF"},
+  {"position": null, "code": "PER", "name": "Sergio Perez", "status": "DNF"},
+  {"position": null, "code": "STR", "name": "Lance Stroll", "status": "DNF"}
+ ]
+}
