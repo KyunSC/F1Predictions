@@ -1,5 +1,6 @@
 from .positions import Positions
 from . import pit_loss as pit
+from . import strategy
 import copy
 import json
 from datetime import datetime, timezone
@@ -148,9 +149,10 @@ class State:
         info = self.topics.get('SessionInfo', {})
         return json.dumps([self.positions.generation, info.get('Key'), info.get('StartDate'), info.get('Meeting')], sort_keys=True)
 
-    def pit_loss_for(self, info):
+    def pit_loss_for(self, info, status=None):
         # Snapshots run on every message; the lookup only changes with the session and track status.
-        key, status = self.map_id(), str(self.topics.get('TrackStatus', {}).get('Status', ''))
+        key = self.map_id()
+        status = str(self.topics.get('TrackStatus', {}).get('Status', '') if status is None else status)
         if self.pit_loss_cache[0] != key:
             self.pit_loss_cache = (key, {})
         cache = self.pit_loss_cache[1]
@@ -206,6 +208,14 @@ class State:
         rejoin = pit.project_rejoin(drivers, pit_loss['seconds']) if race and pit_loss['seconds'] is not None else {}
         for driver in drivers:
             driver['pit_rejoin'] = rejoin.get(driver['number'])
+        status = str(self.topics.get('TrackStatus', {}).get('Status', ''))
+        if race:
+            calls, advice = strategy.advise(drivers, tyres, self.topics.get('LapCount', {}), status, pit_loss,
+                                            self.pit_loss_for(info, '1')['seconds'])
+        else:
+            calls, advice = {}, dict(condition=None, boxes=[], lives={}, reason='Pit strategy is shown only in races.')
+        for driver in drivers:
+            driver['strategy'] = calls.get(driver['number'])
         standings = championship(self.topics.get('ChampionshipPrediction'), self.topics.get('DriverList', {}), info,
             'No championship data in this recording; re-import it with dashboard.historical.'
             if self.recording_has_championship is False else 'Awaiting championship data from the timing feed.')
@@ -217,7 +227,7 @@ class State:
                 pass
         age = None if self.last_update is None else max(0, now - self.last_update)
         messages = self.topics.get('RaceControlMessages', {}).get('Messages', {})
-        return dict(map_id=self.map_id(), session_identity=self.map_id(), generation=self.positions.generation, presentation_timestamp=self.last_update, session=info, drivers=drivers, predictions=predictions, prediction_reason=reason, pit_loss=pit_loss, standings=standings,
+        return dict(map_id=self.map_id(), session_identity=self.map_id(), generation=self.positions.generation, presentation_timestamp=self.last_update, session=info, drivers=drivers, predictions=predictions, prediction_reason=reason, pit_loss=pit_loss, strategy=advice, standings=standings,
             prediction_generated_at=self.predictions.get('generated_at') if self.predictions else None,
             messages=[m for m in messages.values() if isinstance(m, dict)][-100:][::-1], track=self.topics.get('TrackStatus', {}),
             weather=self.topics.get('WeatherData', {}), laps=self.topics.get('LapCount', {}),
