@@ -6,5 +6,10 @@
   "staleFaded": true,
   "staleCount": 6,
   "hiddenAfter15Seconds": true,
-  "freshCoordinatesReturn": true
+  "freshCoordinatesReturn": true,
+  "geometry": {
+    "geometry_id": "synthetic-demo",
+    "attribution": "Synthetic demo",
+    "provenance": "Bundled synthetic demonstration"
+  }
 }

@@ -17,6 +17,8 @@ window.trackAudit = async function(name='desktop',checkpoints=SUZUKA_CHECKPOINTS
   if(svg.dataset.presentationTime!==tower.dataset.presentationTime)run.errors.push('Clock mismatch');
   const points=[...svg.querySelector('polyline').points].map(p=>new DOMPoint(p.x,p.y).matrixTransform(svg.getScreenCTM()));
   const cars=[...svg.querySelectorAll('.car-marker')],labels=cars.map(g=>g.querySelector('rect').getBoundingClientRect());
+  // Every check below is per marker, so an empty map would otherwise pass.
+  run.minMarkers=Math.min(run.minMarkers??Infinity,cars.length);
   cars.forEach((g,i)=>{
    const p=new DOMPoint(0,0).matrixTransform(g.getScreenCTM());
    const error=Math.min(...points.slice(1).map((b,j)=>distance(p,points[j],b)));
@@ -33,8 +35,10 @@ window.trackAudit = async function(name='desktop',checkpoints=SUZUKA_CHECKPOINTS
    run.previous??={};run.previous[n]={along,time:moment};
    const row=tower.querySelector(`tr[data-driver-number="${g.dataset.driverNumber}"]`);
    const code=row?.querySelector('button').textContent,position=row?.querySelector('td').textContent;
-   // Tags show the driver code only; official position lives in the tower row.
-   if(!row||g.querySelector('text').textContent!==code)run.errors.push(`Identity mismatch ${g.dataset.driverNumber}`);
+   // Tags show the driver code (racing number without one); official position lives in
+   // the tower row, whose button falls back to the name instead.
+   const tag=g.querySelector('text').textContent;
+   if(!row||(tag!==code&&tag!==n))run.errors.push(`Identity mismatch ${g.dataset.driverNumber}`);
    run.positions??={};
    if(run.positions[n]!==position){run.positionChanges??=[];run.positionChanges.push({number:n,position,time:moment});run.positions[n]=position}
    const a=labels[i];labels.slice(i+1).forEach(b=>{if(a.left<b.right-.5&&a.right>b.left+.5&&a.top<b.bottom-.5&&a.bottom>b.top+.5)run.errors.push(`Label overlap: ${g.dataset.driverNumber}`)});
@@ -52,6 +56,7 @@ window.trackAudit = async function(name='desktop',checkpoints=SUZUKA_CHECKPOINTS
   const frozen=document.querySelector('.track-map svg')?.outerHTML;
   await wait(500);
   if(frozen!==document.querySelector('.track-map svg')?.outerHTML)run.errors.push('Pause did not freeze map');
+  if(!(run.minMarkers>0))run.errors.push('No markers drawn');
   run.errors=[...new Set(run.errors)];
   await post('/api/verify/results/'+name,results);
  }
@@ -59,16 +64,20 @@ window.trackAudit = async function(name='desktop',checkpoints=SUZUKA_CHECKPOINTS
  const car=document.querySelector('.car-marker');car.focus();car.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await wait(50);
  const row=document.querySelector(`.timing tr[data-driver-number="${car.dataset.driverNumber}"] button`);
  results.keyboardSelection=row.getAttribute('aria-pressed')==='true';
- row.click();await wait(50);results.towerSelection=car.getAttribute('aria-pressed')==='true';
+ // Select a different driver from the tower so the check cannot pass on the earlier choice.
+ const marker=n=>document.querySelector(`.car-marker[data-driver-number="${n}"]`);
+ const other=[...document.querySelectorAll('.car-marker')].map(g=>g.dataset.driverNumber).find(n=>n!==car.dataset.driverNumber);
+ document.querySelector(`.timing tr[data-driver-number="${other}"] button`).click();await wait(50);
+ results.towerSelection=marker(other)?.getAttribute('aria-pressed')==='true'&&marker(car.dataset.driverNumber)?.getAttribute('aria-pressed')==='false';
  // The selected driver is remembered across restarts while that car is in the session.
  await control('restart');await wait(1500);
- results.restartKeptSelection=document.querySelector(`.car-marker[data-driver-number="${car.dataset.driverNumber}"]`)?.getAttribute('aria-pressed')==='true';
+ results.restartKeptSelection=marker(other)?.getAttribute('aria-pressed')==='true';
  await post(`/api/verify/checkpoint/${checkpoints[1]??checkpoints[0]}`,{});await wait(500);
  await post('/api/verify/results/'+name,results);
  console.log('TRACK AUDIT SAVED',name,results);return results;
 };
 
-window.trackFaultAudit=async function(at=3600){
+window.trackFaultAudit=async function(at=3600,name='faults'){
  const wait=ms=>new Promise(r=>setTimeout(r,ms));
  const post=(url,body={})=>fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  const control=(action,speed)=>post('/api/replay/control',{action,speed});
@@ -83,11 +92,11 @@ window.trackFaultAudit=async function(at=3600){
  await wait(3500);results.reconnected=!document.body.textContent.includes('Disconnected · frozen')&&map()!==frozenMap;
  await control('pause');await post(`/api/verify/checkpoint/${at}`);await control('speed',5);await post('/api/verify/fault/positions');await control('resume');
  await wait(1800);
- results.staleFaded=[...document.querySelectorAll('.car-marker')].every(g=>g.getAttribute('opacity')==='0.45');
+ const stale=[...document.querySelectorAll('.car-marker')];results.staleFaded=stale.length>0&&stale.every(g=>g.getAttribute('opacity')==='0.45');
  results.staleCount=document.querySelectorAll('.car-marker').length;
  await wait(1600);results.hiddenAfter15Seconds=document.querySelectorAll('.car-marker').length===0;
  await wait(1200);results.freshCoordinatesReturn=document.querySelectorAll('.car-marker').length===results.staleCount&&results.staleCount>0;
- await control('pause');await post('/api/verify/results/faults',results);await post(`/api/verify/checkpoint/${at}`);console.log('FAULT AUDIT',results);return results;
+ await control('pause');await post('/api/verify/results/'+name,results);await post(`/api/verify/checkpoint/${at}`);console.log('FAULT AUDIT',results);return results;
 };
 window.baselineAudit=async function(){
  const svg=document.querySelector('.track-map svg'),matrix=svg.getScreenCTM();

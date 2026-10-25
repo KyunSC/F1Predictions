@@ -706,14 +706,18 @@ official position stays in the timing tower. A shared rotation and Y-axis flip
 preserve aspect ratio. Each measured coordinate, OffTrack and pit-lane samples
 included, is projected onto the nearest point of the outline and drawn at that arc
 length, so markers always sit on the drawn circuit; this is an approximate track
-position, not the raw measurement. Between samples less than two seconds apart a
+position, not the raw measurement. Between samples no more than two seconds apart a
 car moves along the outline, wrapping across the start/finish line. Where two parts
 of the circuit pass close together, projection penalizes a jump in lap distance
-larger than the car's measured movement, so a car stays on its own branch. Tags
+of more than twice the car's measured movement since its previous sample (at least
+0.4% of a lap, and only when that sample is at most two seconds old), so a car stays
+on its own branch. Tags
 start just above and right of their dot; one that would overlap another tag or dot
-moves to a nearby free slot with a leader line back to the car, keeps that slot
-while it stays free (to avoid flicker), and a pack too dense for any slot falls back
-to a grid of non-overlapping cells across the map. Obvious coordinate-frame
+moves to a nearby free slot with a leader line back to the car, and keeps that
+slot while it stays free unless a much closer one opens (to avoid flicker). If any two
+tags would still overlap, every tag moves to a grid of non-overlapping cells across
+the map, each in the cell nearest its car; when the map has too few cells, the
+overlapping placement is kept. Obvious coordinate-frame
 mismatches show an unavailable reason; coordinates are never rescaled to fit.
 
 Geometry comes from [MultiViewer](https://api.multiviewer.app), at
@@ -770,30 +774,41 @@ verify actual car-to-circuit alignment before relying on the map.
 `dashboard.verify_replay` replays a full recording for the production frontend and
 adds checkpoint, fault and result endpoints under `/api/verify/`. Checkpoints are
 absolute recording seconds; each rebuilds state by applying only earlier events.
-It listens on port 8000, where the frontend's rewrites point, so stop
-`npm run dev` first:
+It listens on port 8000, where the frontend's rewrites point, and the frontend below
+uses 5173, so first stop the dashboard (`npm run dev`, `./start.sh`, or a separately run
+`uvicorn dashboard.app`). Run the harness and the frontend in two terminals:
 
 ```bash
 ./.venv/bin/python -m dashboard.verify_replay --recording cache/suzuka-replay.jsonl
+```
+
+```bash
 cd frontend && npm run build && npm start
 ```
+
+Results, checkpoint dumps and `source.json` go to `--output`. The default is
+`verification/track-map/` for `suzuka-replay.jsonl`, which holds the committed Suzuka
+results, and `verification/track-map/<recording name>/` for any other recording, such
+as `demo/` for the bundled demo. Each saved result also records the outline it was
+measured against.
 
 Open http://127.0.0.1:5173 at the viewport to test and run in the console:
 
 ```js
-fetch('/api/verify/audit.js').then(r=>r.text()).then(s=>{(0,eval)(s);trackAudit('desktop-1440').then(()=>trackFaultAudit())})
+fetch('/api/verify/audit.js').then(r=>r.text()).then(s=>{(0,eval)(s);trackAudit('desktop-1440').then(()=>trackFaultAudit(3600,'faults-1440'))})
 ```
 
 `trackAudit(name, checkpoints)` resumes each checkpoint at 1×, 2× and 5× for three
-seconds and checks every frame: map and tower share one clock, every marker is within
-1px of the drawn outline, no lap-distance jump over 5% of a lap between frames, each
-tag matches its tower row, no two tags overlap, and pause freezes the map. It then
-checks keyboard and tower selection and that a restart keeps the selection.
-`trackFaultAudit(at)` drops the position socket for four seconds (map and tower
-freeze and show **Disconnected · frozen**, then resume), then withholds coordinates
-so markers fade after five seconds, disappear after fifteen and return with fresh
-samples. Results are written to `verification/track-map/`; checkpoint dumps there
-are ignored by Git. The checkpoints default to the Suzuka 2025 race; see
+seconds and checks every frame: every marker is within 1px of the drawn outline, no
+lap-distance jump over 5% of a lap between frames, each tag matches its tower row, no
+two tags overlap, at least one marker is drawn, and pause freezes the map. It then
+checks keyboard selection, that selecting a different driver in the tower moves the
+selection to that car, and that a restart keeps it. `trackFaultAudit(at, name)` drops
+the position socket for four seconds (map and tower freeze and show **Disconnected ·
+frozen**, then resume), then withholds coordinates so markers fade after five seconds,
+disappear after fifteen and return with fresh samples. Pass a different `name` for
+each viewport, for example `faults-400`. Checkpoint dumps are ignored by Git. The
+checkpoints default to the Suzuka 2025 race; see
 [`verification/track-map/RESULTS.md`](verification/track-map/RESULTS.md) for what has
 been run.
 
