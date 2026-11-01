@@ -457,8 +457,8 @@ npm run dev
 Open <http://127.0.0.1:5173>. This starts both services in one terminal; press
 **Ctrl+C** to stop both. It sets up missing dependencies on first use (requires
 Python 3.12 and Node.js 20.19+ installed). Later starts reuse the installation.
-The dashboard opens in Historical (replay); use the **Historical / Live** toggle at
-the top right to switch to live timing without restarting (`POST /api/mode`). Each
+The dashboard opens in live timing; use the **Historical / Live** toggle at the top
+right to switch to a replay without restarting (`POST /api/mode`). Each
 switch rebuilds the timing state, so replay position and live buffers start fresh,
 and all open tabs follow it. No root-level `npm install` is needed; `npm run dev`
 uses the same launcher as `./start.sh`.
@@ -490,10 +490,10 @@ Open <http://127.0.0.1:5173>. Both services bind to localhost. Next.js rewrites
 (`frontend/next.config.ts`) proxy the API and WebSockets to the backend. Run one backend process/worker so all browser tabs
 share one upstream connection and one replay clock. No account or paid access is used.
 
-To receive live timing, restart the backend with:
+The backend starts in live timing. To start it in Historical instead:
 
 ```bash
-F1_MODE=live ./.venv/bin/uvicorn dashboard.app:app --host 127.0.0.1 --port 8000
+F1_MODE=replay ./.venv/bin/uvicorn dashboard.app:app --host 127.0.0.1 --port 8000
 ```
 
 The SignalR Core client follows the JSON subscription used by
@@ -623,7 +623,7 @@ F1_MODE=replay F1_RECORDING=dashboard/recordings/live-smoke.jsonl \
   ./.venv/bin/uvicorn dashboard.app:app --host 127.0.0.1 --port 8000
 ```
 
-Without `F1_RECORDING`, `npm run dev` opens Historical on the most recent archived
+Without `F1_RECORDING`, `npm run dev` points Historical at the most recent archived
 Grand Prix **Race** (sprints are skipped; a race counts as archived an hour after it
 ends, and in January the previous season's last race is used). It runs
 `./.venv/bin/python -m dashboard.historical --latest-race`, which imports the race to

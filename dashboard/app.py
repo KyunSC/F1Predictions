@@ -74,7 +74,7 @@ async def stop_mode(app):
 
 @asynccontextmanager
 async def lifespan(app):
-    mode = os.getenv('F1_MODE', 'replay')
+    mode = os.getenv('F1_MODE', 'live')
     if mode not in MODES:
         raise ValueError('F1_MODE must be live or replay')
     prediction_path = Path(os.getenv('F1_PREDICTIONS', str(ROOT / 'predictions.json')))

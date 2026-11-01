@@ -148,9 +148,20 @@ class State:
         info = self.topics.get('SessionInfo', {})
         return json.dumps([self.positions.generation, info.get('Key'), info.get('StartDate'), info.get('Meeting')], sort_keys=True)
 
+    def track_status(self):
+        """TrackStatus, held at red until a suspended session runs again.
+
+        The feed drops to the track's local flags at TRACK CLEAR, minutes before the restart, while
+        SessionStatus stays Aborted, then Inactive with Started kept, until the session resumes.
+        """
+        track, session = self.topics.get('TrackStatus', {}), self.topics.get('SessionStatus', {})
+        status = session.get('Status')
+        suspended = status == 'Aborted' or (status == 'Inactive' and session.get('Started') == 'Started')
+        return dict(track, Status='5', Message='Red') if suspended else track
+
     def pit_loss_for(self, info):
         # Snapshots run on every message; the lookup only changes with the session and track status.
-        key, status = self.map_id(), str(self.topics.get('TrackStatus', {}).get('Status', ''))
+        key, status = self.map_id(), str(self.track_status().get('Status', ''))
         if self.pit_loss_cache[0] != key:
             self.pit_loss_cache = (key, {})
         cache = self.pit_loss_cache[1]
@@ -219,7 +230,7 @@ class State:
         messages = self.topics.get('RaceControlMessages', {}).get('Messages', {})
         return dict(map_id=self.map_id(), session_identity=self.map_id(), generation=self.positions.generation, presentation_timestamp=self.last_update, session=info, drivers=drivers, predictions=predictions, prediction_reason=reason, pit_loss=pit_loss, standings=standings,
             prediction_generated_at=self.predictions.get('generated_at') if self.predictions else None,
-            messages=[m for m in messages.values() if isinstance(m, dict)][-100:][::-1], track=self.topics.get('TrackStatus', {}),
+            messages=[m for m in messages.values() if isinstance(m, dict)][-100:][::-1], track=self.track_status(),
             weather=self.topics.get('WeatherData', {}), laps=self.topics.get('LapCount', {}),
             connection=dict(mode=self.mode, status=self.connection, error=self.error, reconnects=self.reconnects,
                 last_update=self.last_update, source_timestamp=self.source_timestamp, age_seconds=age,

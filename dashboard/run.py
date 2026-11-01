@@ -49,7 +49,7 @@ def main():
         env = os.environ.copy()
         env.setdefault('NEXT_TELEMETRY_DISABLED', '1')
         if not env.get('F1_RECORDING'):
-            # Open Historical on the most recent Grand Prix; the importer reports a first download.
+            # Point Historical at the most recent Grand Prix; the importer reports a first download.
             print('Finding the most recent race for Historical replay...', flush=True)
             latest = subprocess.run([str(python), '-m', 'dashboard.historical', '--latest-race'],
                                     cwd=ROOT, stdout=subprocess.PIPE, text=True)

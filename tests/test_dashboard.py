@@ -1,6 +1,7 @@
 """Offline dashboard protocol, state, replay, API and notebook export tests."""
 import asyncio
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -90,6 +91,31 @@ class DashboardTests(unittest.TestCase):
         self.assertTrue(all(d['pit_rejoin'] is None for d in snap['drivers']))
         self.assertIn('only in races',snap['pit_loss']['reason'])
         self.assertEqual(State().snapshot()['pit_loss']['reason'],'No pit-loss table loaded.')
+
+    def test_track_status_stays_red_until_a_suspended_session_resumes(self):
+        info=dict(INFO,Type='Race',Name='Race')
+        state=State(pit_loss=dict(races=[])); state.apply('SessionInfo',info)
+        state.apply('SessionStatus',{'Status':'Started','Started':'Started'})
+        state.apply('TrackStatus',{'Status':'5','Message':'Red'})
+        state.apply('SessionStatus',{'Status':'Aborted','Started':'Started'})
+        # TRACK CLEAR and later local yellows replace Red in the feed mid-stoppage.
+        state.apply('TrackStatus',{'Status':'2','Message':'Yellow'})
+        snap=state.snapshot()
+        self.assertEqual((snap['track']['Status'],snap['track']['Message']),('5','Red'))
+        self.assertEqual(snap['pit_loss']['condition'],'red')
+        state.apply('TrackStatus',{'Status':'1','Message':'AllClear'})
+        state.apply('SessionStatus',{'Status':'Inactive','Started':'Started'})
+        self.assertEqual(state.snapshot()['track']['Status'],'5')
+        state.apply('SessionStatus',{'Status':'Started','Started':'Started'})
+        self.assertEqual(state.snapshot()['track']['Status'],'1')
+        self.assertEqual(state.topics['TrackStatus']['Status'],'1')
+
+    def test_track_status_is_untouched_outside_a_suspension(self):
+        state=State(); state.apply('TrackStatus',{'Status':'2','Message':'Yellow'})
+        for session in ({'Status':'Inactive','Started':'Inactive'},{'Status':'Started','Started':'Started'},
+                        {'Status':'Inactive','Started':'Finished'},{'Status':'Finished','Started':'Finished'}):
+            state.apply('SessionStatus',session)
+            self.assertEqual(state.snapshot()['track']['Status'],'2',session)
 
     def test_championship_projection_in_snapshot(self):
         state=State(); state.apply('SessionInfo',INFO)
@@ -294,6 +320,14 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(client.post('/api/replay/control',json={'action':'seek'}).status_code,422)
             with client.websocket_connect('/ws') as ws:
                 self.assertIn('drivers',ws.receive_json())
+
+    def test_app_starts_in_live_mode_by_default(self):
+        async def idle_live(state, path):
+            await asyncio.Event().wait()
+        env={k:v for k,v in os.environ.items() if k!='F1_MODE'}
+        with patch.dict('os.environ',dict(env,F1_RECORDING=DEMO),clear=True), patch('dashboard.app.run_live',idle_live), TestClient(app) as client:
+            self.assertEqual(client.get('/api/state').json()['connection']['mode'],'live')
+            self.assertEqual(client.post('/api/mode',json={'mode':'replay'}).json()['connection']['mode'],'replay')
 
     def test_mode_switch_rebuilds_state(self):
         async def idle_live(state, path):
